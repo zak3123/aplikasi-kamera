@@ -2,6 +2,7 @@ package com.fatih.adaptivecompositioncamera.utility
 
 import android.util.Size
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.round
@@ -25,6 +26,7 @@ enum class AdaptiveLayout { PhonePortrait, PhoneLandscape, TabletPortrait, Table
 
 object CameraMath {
     const val PHI = 1.61803398875f
+    private const val GOLDEN_GUIDE_MARGIN = 0.025f
 
     fun megapixels(width: Int, height: Int): Double {
         if (width <= 0 || height <= 0) return 0.0
@@ -78,14 +80,16 @@ object CameraMath {
 
     fun fitGoldenRectangle(width: Float, height: Float): FloatBounds {
         if (width <= 0f || height <= 0f) return FloatBounds(0f, 0f, 0f, 0f)
+        val availableWidth = width * (1f - GOLDEN_GUIDE_MARGIN * 2f)
+        val availableHeight = height * (1f - GOLDEN_GUIDE_MARGIN * 2f)
         val targetWidth: Float
         val targetHeight: Float
-        if (width / height >= PHI) {
-            targetHeight = height
-            targetWidth = height * PHI
+        if (availableWidth / availableHeight >= PHI) {
+            targetHeight = availableHeight
+            targetWidth = availableHeight * PHI
         } else {
-            targetWidth = width
-            targetHeight = width / PHI
+            targetWidth = availableWidth
+            targetHeight = availableWidth / PHI
         }
         val left = (width - targetWidth) / 2f
         val top = (height - targetHeight) / 2f
@@ -181,6 +185,76 @@ object CameraMath {
         return FloatPoint(point.x * scale - cropX, point.y * scale - cropY)
     }
 
+    fun fitAspectRatio(width: Float, height: Float, targetAspectRatio: Float): FloatBounds {
+        if (width <= 0f || height <= 0f || targetAspectRatio <= 0f) return FloatBounds(0f, 0f, 0f, 0f)
+        val targetWidth: Float
+        val targetHeight: Float
+        if (width / height >= targetAspectRatio) {
+            targetHeight = height
+            targetWidth = height * targetAspectRatio
+        } else {
+            targetWidth = width
+            targetHeight = width / targetAspectRatio
+        }
+        val left = (width - targetWidth) / 2f
+        val top = (height - targetHeight) / 2f
+        return FloatBounds(left, top, left + targetWidth, top + targetHeight)
+    }
+
+    fun cropDimensions(
+        sourceWidth: Int,
+        sourceHeight: Int,
+        aspectRatio: PhotoAspectRatio,
+        viewportWidth: Int = 0,
+        viewportHeight: Int = 0,
+    ): Pair<Int, Int> {
+        if (sourceWidth <= 0 || sourceHeight <= 0) return 0 to 0
+        val sourceRatio = sourceWidth.toDouble() / sourceHeight
+        val targetRatio = when (aspectRatio) {
+            PhotoAspectRatio.FullSensor -> sourceRatio
+            PhotoAspectRatio.Ratio4x3 -> 4.0 / 3.0
+            PhotoAspectRatio.Ratio3x2 -> 3.0 / 2.0
+            PhotoAspectRatio.Ratio16x9 -> 16.0 / 9.0
+            PhotoAspectRatio.Ratio1x1 -> 1.0
+            PhotoAspectRatio.FullScreen -> {
+                if (viewportWidth > 0 && viewportHeight > 0) {
+                    maxOf(viewportWidth, viewportHeight).toDouble() / minOf(viewportWidth, viewportHeight)
+                } else sourceRatio
+            }
+        }
+        val width: Int
+        val height: Int
+        if (targetRatio >= sourceRatio) {
+            width = sourceWidth
+            height = (sourceWidth / targetRatio).toInt()
+        } else {
+            width = (sourceHeight * targetRatio).toInt()
+            height = sourceHeight
+        }
+        return width.evenDimension(sourceWidth) to height.evenDimension(sourceHeight)
+    }
+
+    fun previewAspectRatio(
+        sourceWidth: Int,
+        sourceHeight: Int,
+        aspectRatio: PhotoAspectRatio,
+        landscape: Boolean,
+        fullScreenAspectRatio: Float,
+    ): Float {
+        val sensorRatio = if (sourceWidth > 0 && sourceHeight > 0) {
+            maxOf(sourceWidth, sourceHeight).toFloat() / minOf(sourceWidth, sourceHeight)
+        } else 4f / 3f
+        val landscapeRatio = when (aspectRatio) {
+            PhotoAspectRatio.FullSensor -> sensorRatio
+            PhotoAspectRatio.Ratio4x3 -> 4f / 3f
+            PhotoAspectRatio.Ratio3x2 -> 3f / 2f
+            PhotoAspectRatio.Ratio16x9 -> 16f / 9f
+            PhotoAspectRatio.Ratio1x1 -> 1f
+            PhotoAspectRatio.FullScreen -> fullScreenAspectRatio.coerceAtLeast(1f)
+        }
+        return if (landscape) landscapeRatio else 1f / landscapeRatio
+    }
+
     fun adaptiveLayout(widthDp: Int, heightDp: Int): AdaptiveLayout {
         val tablet = minOf(widthDp, heightDp) >= 600
         return when {
@@ -221,4 +295,6 @@ object CameraMath {
     private tailrec fun gcd(a: Int, b: Int): Int {
         return if (b == 0) abs(a) else gcd(b, a % b)
     }
+
+    private fun Int.evenDimension(maximum: Int): Int = coerceIn(2, maximum).let { if (it % 2 == 0) it else it - 1 }
 }

@@ -73,6 +73,7 @@ fun AdaptiveCameraApp(
             onGuideChange = viewModel::setGuide,
             onCameraChange = viewModel::setSelectedCamera,
             onResolutionChange = viewModel::setSelectedResolution,
+            onAspectRatioChange = viewModel::setPhotoAspectRatio,
             onDiagnosticsChange = viewModel::updateDiagnostics,
             onOpenSettings = { screen = AppScreen.Settings },
             onOpenMedia = {
@@ -94,6 +95,7 @@ fun AdaptiveCameraApp(
             onAudio = viewModel::setAudio,
             onHaptics = viewModel::setHaptics,
             onVolumeShutter = viewModel::setVolumeShutter,
+            onMatchPreviewCrop = viewModel::setMatchPreviewCrop,
         )
 
         AppScreen.CameraInformation -> CapabilityScreen(

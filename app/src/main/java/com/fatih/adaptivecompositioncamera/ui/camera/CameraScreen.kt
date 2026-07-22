@@ -8,6 +8,7 @@ import android.os.Build
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.Surface as AndroidSurface
 import androidx.camera.core.CameraSelector
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
@@ -27,8 +28,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -75,23 +78,29 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -114,6 +123,7 @@ import com.fatih.adaptivecompositioncamera.domain.model.LensFacing
 import com.fatih.adaptivecompositioncamera.domain.model.LensRole
 import com.fatih.adaptivecompositioncamera.domain.model.LevelReading
 import com.fatih.adaptivecompositioncamera.domain.model.MediaItem
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
 import com.fatih.adaptivecompositioncamera.domain.model.RuntimeCameraInfo
 import com.fatih.adaptivecompositioncamera.media.AndroidMediaRepository
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
@@ -138,6 +148,7 @@ fun CameraScreen(
     onGuideChange: (CompositionGuide) -> Unit,
     onCameraChange: (String) -> Unit,
     onResolutionChange: (String, String) -> Unit,
+    onAspectRatioChange: (PhotoAspectRatio) -> Unit,
     onDiagnosticsChange: (CameraDiagnostics) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenMedia: (MediaItem) -> Unit,
@@ -151,6 +162,8 @@ fun CameraScreen(
 
     val context = LocalContext.current
     val activity = context.findActivity()
+    val configuration = LocalConfiguration.current
+    val localView = LocalView.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val runtime = remember { CameraRuntime(context.applicationContext) }
     val mediaRepository = remember { AndroidMediaRepository() }
@@ -184,6 +197,7 @@ fun CameraScreen(
     val sessionState by runtime.state.collectAsState()
 
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
+    var previewSize by remember { mutableStateOf(IntSize.Zero) }
     var runtimeInfo by remember { mutableStateOf(RuntimeCameraInfo()) }
     var flashMode by remember { mutableStateOf(FlashMode.Off) }
     var timerSeconds by remember { mutableIntStateOf(0) }
@@ -206,6 +220,24 @@ fun CameraScreen(
     var lastCameraError by remember { mutableStateOf<String?>(null) }
     var lastCaptureError by remember { mutableStateOf<String?>(null) }
     var lastRecordingError by remember { mutableStateOf<String?>(null) }
+    var actualSavedResolution by remember { mutableStateOf<String?>(null) }
+    var configurationMismatch by remember { mutableStateOf<String?>(null) }
+
+    val estimatedOutputDimensions = selectedResolution?.let { source ->
+        if (settings.matchPreviewCrop) {
+            CameraMath.cropDimensions(
+                source.width,
+                source.height,
+                settings.photoAspectRatio,
+                previewSize.width,
+                previewSize.height,
+            )
+        } else source.width to source.height
+    }
+    val estimatedOutputLabel = estimatedOutputDimensions?.let { (width, height) ->
+        val megapixels = CameraMath.megapixels(width, height)
+        if (megapixels % 1.0 == 0.0) "${megapixels.toInt()} MP" else "$megapixels MP"
+    }
 
     var showResolutionSheet by remember { mutableStateOf(false) }
     var showAspectSheet by remember { mutableStateOf(false) }
@@ -240,11 +272,15 @@ fun CameraScreen(
     LaunchedEffect(settings.mode, availableModes) {
         if (settings.mode !in availableModes) onModeChange(CameraMode.Photo)
         if (settings.mode == CameraMode.MaximumResolution) {
-            resolutions.firstOrNull()?.let {
+            activeCapability?.displayMaximumResolution?.let {
                 selectedResolution = it
                 activeCapability?.cameraId?.let { cameraId -> onResolutionChange(cameraId, it.id) }
             }
         }
+    }
+    LaunchedEffect(activeCameraId, selectedResolution?.id, settings.photoAspectRatio, settings.matchPreviewCrop) {
+        actualSavedResolution = null
+        configurationMismatch = null
     }
     LaunchedEffect(levelReading.isLevel, settings.guide) {
         val aligned = settings.guide == CompositionGuide.HorizonLevel && levelReading.isLevel
@@ -272,8 +308,18 @@ fun CameraScreen(
         }
     }
 
-    LaunchedEffect(previewView, lensFacing, selectedResolution?.id, settings.mode) {
+    LaunchedEffect(
+        previewView,
+        previewSize,
+        lensFacing,
+        selectedResolution?.id,
+        settings.mode,
+        settings.photoAspectRatio,
+        settings.matchPreviewCrop,
+        configuration.orientation,
+    ) {
         val view = previewView ?: return@LaunchedEffect
+        if (previewSize.width <= 0 || previewSize.height <= 0) return@LaunchedEffect
         val selectorFacing = when (lensFacing) {
             LensFacing.Front -> CameraSelector.LENS_FACING_FRONT
             LensFacing.External -> CameraSelector.LENS_FACING_EXTERNAL
@@ -286,11 +332,22 @@ fun CameraScreen(
             cameraId = activeCapability?.cameraId,
             resolution = selectedResolution,
             mode = settings.mode,
+            viewportWidth = previewSize.width,
+            viewportHeight = previewSize.height,
+            targetRotation = localView.display?.rotation ?: AndroidSurface.ROTATION_0,
+            matchPreviewCrop = settings.matchPreviewCrop,
             onBound = {
                 runtimeInfo = it
-                resolutions.firstOrNull { resolution ->
+                val accepted = resolutions.firstOrNull { resolution ->
                     resolution.width == it.captureWidth && resolution.height == it.captureHeight
-                }?.let { actual ->
+                }
+                if (settings.mode != CameraMode.Video && selectedResolution != null && accepted == null && it.captureWidth > 0) {
+                    configurationMismatch = "Requested ${selectedResolution!!.width} x ${selectedResolution!!.height}, but CameraX bound ${it.captureWidth} x ${it.captureHeight}."
+                }
+                accepted?.let { actual ->
+                    if (selectedResolution?.id != actual.id) {
+                        configurationMismatch = "Requested ${selectedResolution?.width} x ${selectedResolution?.height}, but CameraX bound ${actual.width} x ${actual.height}."
+                    }
                     selectedResolution = actual
                     activeCapability?.cameraId?.let { cameraId -> onResolutionChange(cameraId, actual.id) }
                 }
@@ -317,6 +374,9 @@ fun CameraScreen(
         lastCameraError,
         lastCaptureError,
         lastRecordingError,
+        actualSavedResolution,
+        configurationMismatch,
+        settings.photoAspectRatio,
     ) {
         onDiagnosticsChange(
             CameraDiagnostics(
@@ -326,7 +386,16 @@ fun CameraScreen(
                 mode = settings.mode,
                 activeResolution = if (settings.mode == CameraMode.Video && runtimeInfo.videoWidth > 0) {
                     "${runtimeInfo.videoWidth} × ${runtimeInfo.videoHeight} (${videoQualityLabel(runtimeInfo.videoWidth, runtimeInfo.videoHeight)})"
-                } else selectedResolution?.let { "${it.width} × ${it.height} (${it.megapixelLabel})" },
+                } else estimatedOutputDimensions?.let { (width, height) ->
+                    "$width × $height ($estimatedOutputLabel ${if (settings.photoAspectRatio == PhotoAspectRatio.FullSensor) "native" else "crop"})"
+                },
+                requestedResolution = selectedResolution?.let { "${it.width} × ${it.height} (${it.megapixelLabel})" },
+                boundCaptureResolution = runtimeInfo.captureWidth.takeIf { it > 0 }
+                    ?.let { "${runtimeInfo.captureWidth} × ${runtimeInfo.captureHeight}" },
+                actualSavedResolution = actualSavedResolution,
+                selectedAspectRatio = settings.photoAspectRatio.label(),
+                sensorPixelMode = runtimeInfo.sensorPixelMode,
+                configurationMismatch = configurationMismatch,
                 previewResolution = runtimeInfo.previewWidth.takeIf { it > 0 }
                     ?.let { width -> "$width × ${runtimeInfo.previewHeight}" },
                 currentFps = activeCapability?.fpsRanges?.joinToString(limit = 3),
@@ -411,10 +480,29 @@ fun CameraScreen(
                 captureEffectVisible = false
                 runtime.capturePhoto(reverseHorizontal = isFront && settings.saveMirroredSelfie)
                     .onSuccess { uri ->
-                        latestMedia = mediaRepository.mediaItem(context, uri, "image/jpeg")
+                        val captured = mediaRepository.mediaItem(context, uri, "image/jpeg")?.copy(
+                            cameraId = activeCapability?.cameraId,
+                            requestedResolution = selectedResolution?.let { "${it.width} x ${it.height}" },
+                            boundResolution = runtimeInfo.captureWidth.takeIf { it > 0 }
+                                ?.let { "${runtimeInfo.captureWidth} x ${runtimeInfo.captureHeight}" },
+                        )
+                        latestMedia = captured
+                        captured?.takeIf { it.width > 0 && it.height > 0 }?.let { media ->
+                            val actualMp = CameraMath.megapixels(media.width, media.height)
+                            actualSavedResolution = "${media.width} × ${media.height} ($actualMp MP)"
+                            estimatedOutputDimensions?.let { (expectedWidth, expectedHeight) ->
+                                val expectedMp = CameraMath.megapixels(expectedWidth, expectedHeight)
+                                val actualRatio = maxOf(media.width, media.height).toFloat() / minOf(media.width, media.height)
+                                val expectedRatio = maxOf(expectedWidth, expectedHeight).toFloat() / minOf(expectedWidth, expectedHeight)
+                                if (actualMp < expectedMp * 0.80 || abs(actualRatio - expectedRatio) > 0.035f) {
+                                    configurationMismatch =
+                                        "Requested output $expectedWidth x $expectedHeight ($expectedMp MP), but the saved JPEG is ${media.width} x ${media.height} ($actualMp MP)."
+                                }
+                            }
+                        }
                         lastCaptureError = null
                         if (settings.haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onMessage("Photo saved")
+                        onMessage(configurationMismatch ?: actualSavedResolution?.let { "Photo saved - $it" } ?: "Photo saved")
                     }
                     .onFailure {
                         lastCaptureError = it.message ?: "Photo capture failed."
@@ -482,83 +570,112 @@ fun CameraScreen(
     }
 
     BoxWithConstraints(modifier.fillMaxSize().background(Color.Black)) {
-        val sideRail = maxWidth >= 900.dp && maxWidth > maxHeight
-        val guideModifier = Modifier.fillMaxSize().padding(
-            top = 82.dp,
-            bottom = if (sideRail) 24.dp else (maxHeight * 0.24f).coerceIn(170.dp, 240.dp),
-            end = if (sideRail) (maxWidth * 0.30f).coerceIn(300.dp, 380.dp) else 0.dp,
-        )
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { previewContext ->
-                PreviewView(previewContext).apply {
-                    scaleType = PreviewView.ScaleType.FILL_CENTER
-                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                    previewView = this
-                }
-            },
-            update = { view ->
-                view.scaleX = if (isFront && !settings.mirrorFrontPreview) -1f else 1f
-            },
-        )
-
-        CompositionGuideOverlay(
-            guide = settings.guide,
-            mirrored = mirrorPreview,
-            style = guideStyle,
-            levelReading = levelReading,
-            vanishingPoint = vanishingPoint,
-            frameBounds = frameBounds,
-            eyeLineFraction = eyeLineFraction,
-            modifier = guideModifier,
-        )
-
-        InteractiveGuideLayer(
-            guide = settings.guide,
-            vanishingPoint = vanishingPoint,
-            frameBounds = frameBounds,
-            eyeLineFraction = eyeLineFraction,
-            onVanishingPoint = { vanishingPoint = it },
-            onFrameBounds = { frameBounds = it },
-            onEyeLine = { eyeLineFraction = it },
-            modifier = guideModifier,
-        )
-
-        focusPoint?.let { point ->
-            FocusIndicator(point, Modifier.fillMaxSize())
+        val layout = CameraMath.adaptiveLayout(maxWidth.value.toInt(), maxHeight.value.toInt())
+        val policy = cameraUiLayoutPolicy(layout)
+        val topReserve = if (policy.landscape) 0.dp else 64.dp
+        val bottomReserve = if (policy.landscape) 0.dp else CameraUiTokens.portraitControlsHeight
+        val availableWidth = (maxWidth - policy.captureRailWidth).coerceAtLeast(1.dp)
+        val availableHeight = (maxHeight - topReserve - bottomReserve).coerceAtLeast(1.dp)
+        val availableLandscapeRatio = maxOf(availableWidth.value, availableHeight.value) /
+            minOf(availableWidth.value, availableHeight.value).coerceAtLeast(1f)
+        val targetAspect = if (settings.mode == CameraMode.Video) {
+            val ratio = if (runtimeInfo.videoWidth > 0 && runtimeInfo.videoHeight > 0) {
+                maxOf(runtimeInfo.videoWidth, runtimeInfo.videoHeight).toFloat() /
+                    minOf(runtimeInfo.videoWidth, runtimeInfo.videoHeight)
+            } else 16f / 9f
+            if (policy.landscape) ratio else 1f / ratio
+        } else {
+            CameraMath.previewAspectRatio(
+                selectedResolution?.width ?: 4,
+                selectedResolution?.height ?: 3,
+                settings.photoAspectRatio,
+                policy.landscape,
+                availableLandscapeRatio,
+            )
         }
+        val fittedPreview = CameraMath.fitAspectRatio(availableWidth.value, availableHeight.value, targetAspect)
+        val previewModifier = Modifier
+            .offset(x = fittedPreview.left.dp, y = topReserve + fittedPreview.top.dp)
+            .size(fittedPreview.width.dp, fittedPreview.height.dp)
+            .clipToBounds()
+            .background(Color.Black)
 
-        AnimatedVisibility(
-            visible = showExposure,
-            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 4.dp),
-        ) {
-            Surface(color = Color.Black.copy(alpha = 0.52f), shape = RoundedCornerShape(8.dp)) {
-                Slider(
-                    value = exposure.toFloat(),
-                    onValueChange = { exposure = runtime.setExposure(it.toInt()) },
-                    valueRange = runtimeInfo.exposureMin.toFloat()..runtimeInfo.exposureMax.toFloat(),
-                    modifier = Modifier.width(150.dp).rotate(-90f),
-                )
+        Box(previewModifier.onSizeChanged { previewSize = it }) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { previewContext ->
+                    PreviewView(previewContext).apply {
+                        scaleType = PreviewView.ScaleType.FILL_CENTER
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                        previewView = this
+                    }
+                },
+                update = { view ->
+                    view.scaleX = if (isFront && !settings.mirrorFrontPreview) -1f else 1f
+                },
+            )
+
+            CompositionGuideOverlay(
+                guide = settings.guide,
+                mirrored = mirrorPreview,
+                style = guideStyle,
+                levelReading = levelReading,
+                vanishingPoint = vanishingPoint,
+                frameBounds = frameBounds,
+                eyeLineFraction = eyeLineFraction,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            InteractiveGuideLayer(
+                guide = settings.guide,
+                vanishingPoint = vanishingPoint,
+                frameBounds = frameBounds,
+                eyeLineFraction = eyeLineFraction,
+                onVanishingPoint = { vanishingPoint = it },
+                onFrameBounds = { frameBounds = it },
+                onEyeLine = { eyeLineFraction = it },
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            focusPoint?.let { point -> FocusIndicator(point, Modifier.fillMaxSize()) }
+
+            AnimatedVisibility(
+                visible = showExposure,
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 4.dp),
+            ) {
+                Surface(color = Color.Black.copy(alpha = 0.45f), shape = RoundedCornerShape(18.dp)) {
+                    Slider(
+                        value = exposure.toFloat(),
+                        onValueChange = { exposure = runtime.setExposure(it.toInt()) },
+                        valueRange = runtimeInfo.exposureMin.toFloat()..runtimeInfo.exposureMax.toFloat(),
+                        modifier = Modifier.width(142.dp).rotate(-90f),
+                    )
+                }
             }
         }
 
         if (!isRecording) {
             CameraTopBar(
-                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().displayCutoutPadding().padding(horizontal = 8.dp, vertical = 6.dp),
+                modifier = (if (policy.landscape) Modifier.align(Alignment.TopStart) else Modifier.align(Alignment.TopCenter))
+                    .statusBarsPadding().displayCutoutPadding().padding(horizontal = 8.dp, vertical = 6.dp),
                 hasFlash = runtimeInfo.hasFlash || (isFront && settings.screenFlash),
                 flashMode = flashMode,
                 onFlash = {
-                    flashMode = flashMode.next(runtimeInfo.hasFlash)
+                    flashMode = if (settings.mode == CameraMode.Video) {
+                        if (flashMode == FlashMode.Torch) FlashMode.Off else FlashMode.Torch
+                    } else flashMode.next(runtimeInfo.hasFlash)
                     if (runtimeInfo.hasFlash && !runtime.setFlashMode(flashMode)) onMessage("Flash mode is unavailable for this camera.")
                 },
                 timerSeconds = timerSeconds,
                 onTimer = { timerSeconds = timerSeconds.nextTimer() },
                 aspectRatioLabel = if (settings.mode == CameraMode.Video && runtimeInfo.videoWidth > 0) {
                     CameraMath.aspectRatioLabel(runtimeInfo.videoWidth, runtimeInfo.videoHeight)
-                } else selectedResolution?.aspectRatioLabel,
+                } else settings.photoAspectRatio.shortLabel(),
                 resolutionLabel = if (settings.mode == CameraMode.Video) {
                     videoQualityLabel(runtimeInfo.videoWidth, runtimeInfo.videoHeight)
-                } else selectedResolution?.megapixelLabel,
+                } else if (configurationMismatch != null) {
+                    actualSavedResolution?.substringAfter('(')?.substringBefore(')') ?: estimatedOutputLabel
+                } else estimatedOutputLabel,
                 onAspectRatio = {
                     if (settings.mode == CameraMode.Video) {
                         onMessage("Video aspect ratio follows the active CameraX video stream.")
@@ -566,7 +683,7 @@ fun CameraScreen(
                 },
                 onResolution = {
                     if (settings.mode == CameraMode.Video) {
-                        onMessage("Video quality is selected from the CameraX stream accepted by this camera.")
+                        onMessage("Video quality follows a CameraX stream accepted by this camera.")
                     } else if (resolutions.isNotEmpty()) showResolutionSheet = true
                 },
                 onComposition = { showCompositionSheet = true },
@@ -586,31 +703,30 @@ fun CameraScreen(
                         if (runtime.pauseVideo()) true else false
                     }
                 },
-                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 74.dp),
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 10.dp),
             )
         }
 
         if (countdown > 0) {
-            Text(
-                countdown.toString(),
-                color = Color.White,
-                fontSize = 86.sp,
-                modifier = Modifier.align(Alignment.Center),
-            )
+            Text(countdown.toString(), color = Color.White, fontSize = 86.sp, modifier = Modifier.align(Alignment.Center))
         }
 
         CameraBottomControls(
-            modifier = Modifier.align(if (sideRail) Alignment.CenterEnd else Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-                .widthIn(max = if (sideRail) 360.dp else 620.dp),
+            modifier = if (policy.landscape) {
+                Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(policy.captureRailWidth)
+                    .navigationBarsPadding().displayCutoutPadding()
+            } else {
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .widthIn(max = policy.controlsMaximumWidth).navigationBarsPadding()
+            },
+            landscape = policy.landscape,
             activeMode = settings.mode,
             availableModes = availableModes,
             availableCameras = availableCameras.filter {
                 it.lensFacing == lensFacing || it.lensFacing == LensFacing.External
             },
             activeCameraId = activeCameraId,
-            maxResolution = activeCapability?.jpegResolutions?.firstOrNull(),
+            maxResolution = activeCapability?.displayMaximumResolution,
             zoom = zoom,
             minZoom = runtimeInfo.minZoom,
             maxZoom = runtimeInfo.maxZoom,
@@ -654,6 +770,8 @@ fun CameraScreen(
             selected = selectedResolution,
             onSelect = {
                 selectedResolution = it
+                if (it.maximumSensorMode) onModeChange(CameraMode.MaximumResolution)
+                else if (settings.mode == CameraMode.MaximumResolution) onModeChange(CameraMode.Photo)
                 activeCapability?.cameraId?.let { cameraId -> onResolutionChange(cameraId, it.id) }
             },
             onDismiss = { showResolutionSheet = false },
@@ -661,12 +779,11 @@ fun CameraScreen(
     }
     if (showAspectSheet) {
         AspectRatioSheet(
-            resolutions = resolutions,
-            selected = selectedResolution,
-            onSelect = {
-                selectedResolution = it
-                activeCapability?.cameraId?.let { cameraId -> onResolutionChange(cameraId, it.id) }
-            },
+            sourceResolution = selectedResolution,
+            selected = settings.photoAspectRatio,
+            viewportWidth = previewSize.width,
+            viewportHeight = previewSize.height,
+            onSelect = onAspectRatioChange,
             onDismiss = { showAspectSheet = false },
         )
     }
@@ -693,7 +810,7 @@ fun CameraScreen(
         MoreModesSheet(
             modes = availableModes,
             activeMode = settings.mode,
-            maxResolution = activeCapability?.jpegResolutions?.firstOrNull(),
+            maxResolution = activeCapability?.displayMaximumResolution,
             onSelect = onModeChange,
             onDismiss = { showMoreSheet = false },
         )
@@ -716,31 +833,29 @@ private fun CameraTopBar(
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(modifier, color = Color.Black.copy(alpha = 0.46f), shape = RoundedCornerShape(8.dp)) {
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            if (hasFlash) {
-                TopControl(
-                    icon = when (flashMode) {
-                        FlashMode.Off -> Icons.Rounded.FlashOff
-                        FlashMode.Auto -> Icons.Rounded.FlashAuto
-                        FlashMode.On, FlashMode.Torch -> Icons.Rounded.FlashOn
-                    },
-                    description = "Flash ${flashMode.name}",
-                    label = flashMode.takeUnless { it == FlashMode.Off }?.name,
-                    onClick = onFlash,
-                )
-            }
-            TopControl(Icons.Rounded.Timer, "Self timer", if (timerSeconds == 0) null else "${timerSeconds}s", onTimer)
-            TopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio)
-            TopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution)
-            TopControl(Icons.Rounded.GridOn, "Composition guides", null, onComposition)
-            TopControl(Icons.Rounded.Settings, "Settings", null, onSettings)
-            TopControl(Icons.Rounded.MoreVert, "More camera controls", null, onMore)
+    Row(
+        modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        if (hasFlash) {
+            TopControl(
+                icon = when (flashMode) {
+                    FlashMode.Off -> Icons.Rounded.FlashOff
+                    FlashMode.Auto -> Icons.Rounded.FlashAuto
+                    FlashMode.On, FlashMode.Torch -> Icons.Rounded.FlashOn
+                },
+                description = "Flash ${flashMode.name}",
+                label = flashMode.takeUnless { it == FlashMode.Off }?.name,
+                onClick = onFlash,
+            )
         }
+        TopControl(Icons.Rounded.Timer, "Self timer", if (timerSeconds == 0) null else "${timerSeconds}s", onTimer)
+        TopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio)
+        TopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution)
+        TopControl(Icons.Rounded.GridOn, "Composition guides", null, onComposition)
+        TopControl(Icons.Rounded.Settings, "Settings", null, onSettings)
+        TopControl(Icons.Rounded.MoreVert, "More camera controls", null, onMore)
     }
 }
 
@@ -751,9 +866,16 @@ private fun TopControl(
     label: String?,
     onClick: () -> Unit,
 ) {
-    Column(Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
-            Icon(icon, contentDescription = description, tint = Color.White)
+    Column(Modifier.width(54.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            onClick = onClick,
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.42f),
+            modifier = Modifier.size(CameraUiTokens.topIconSize),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = description, tint = Color.White)
+            }
         }
         if (label != null) {
             Text(
@@ -762,6 +884,9 @@ private fun TopControl(
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Clip,
+                softWrap = false,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.52f))
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
             )
         }
     }
@@ -769,6 +894,7 @@ private fun TopControl(
 
 @Composable
 private fun CameraBottomControls(
+    landscape: Boolean,
     activeMode: CameraMode,
     availableModes: List<CameraMode>,
     availableCameras: List<CameraCapability>,
@@ -792,37 +918,144 @@ private fun CameraBottomControls(
     onShutter: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(modifier, color = Color.Black.copy(alpha = 0.58f), shape = RoundedCornerShape(8.dp)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (availableCameras.size > 1) {
-                LensSelector(availableCameras, activeCameraId, onCamera)
-            }
-            if (maxZoom > minZoom + 0.05f) {
-                QuickZoomRow(zoom, minZoom, maxZoom, onZoom, onToggleZoomSlider)
-                AnimatedVisibility(showZoomSlider) {
-                    Slider(value = zoom, onValueChange = onZoom, valueRange = minZoom..maxZoom, modifier = Modifier.fillMaxWidth().height(32.dp))
-                }
-            }
-            ModeCarousel(activeMode, availableModes, maxResolution, onMode, onMore)
-            Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
+    if (landscape) {
+        Row(
+            modifier.background(
+                Brush.horizontalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))),
+            ).padding(horizontal = 6.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                Modifier.width(CameraUiTokens.landscapeModeRailWidth).fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
             ) {
+                LandscapeModeSelector(activeMode, availableModes, maxResolution, onMode, onMore)
+            }
+            Column(
+                Modifier.width(CameraUiTokens.landscapeCaptureRailWidth).fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                if (availableCameras.size > 1) {
+                    CompactLensSelector(availableCameras, activeCameraId, onCamera)
+                } else if (maxZoom > minZoom + 0.05f) {
+                    ZoomButton(zoom, selected = true) { onToggleZoomSlider() }
+                }
+                AnimatedVisibility(showZoomSlider && maxZoom > minZoom + 0.05f) {
+                    Slider(
+                        value = zoom,
+                        onValueChange = onZoom,
+                        valueRange = minZoom..maxZoom,
+                        modifier = Modifier.width(108.dp).height(30.dp),
+                    )
+                }
                 LatestMediaButton(latestThumbnail, hasLatestMedia, onLatestMedia)
                 ShutterButton(videoMode = activeMode == CameraMode.Video, recording = isRecording, onClick = onShutter)
-                Surface(
-                    onClick = onSwitch,
-                    enabled = canSwitch,
-                    shape = CircleShape,
-                    color = Color.White.copy(alpha = if (canSwitch) 0.16f else 0.07f),
-                    modifier = Modifier.size(58.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Cameraswitch, "Switch camera", tint = Color.White)
-                    }
-                }
+                CameraSwitchButton(canSwitch, onSwitch)
             }
+        }
+    } else {
+        Column(
+            modifier.background(
+                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))),
+            ).padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (availableCameras.size > 1) {
+                LensSelector(availableCameras, activeCameraId, onCamera)
+            } else if (maxZoom > minZoom + 0.05f) {
+                QuickZoomRow(zoom, minZoom, maxZoom, onZoom, onToggleZoomSlider)
+            }
+            AnimatedVisibility(showZoomSlider && maxZoom > minZoom + 0.05f) {
+                Slider(value = zoom, onValueChange = onZoom, valueRange = minZoom..maxZoom, modifier = Modifier.fillMaxWidth().height(30.dp))
+            }
+            ModeCarousel(activeMode, availableModes, maxResolution, onMode, onMore)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                LatestMediaButton(latestThumbnail, hasLatestMedia, onLatestMedia)
+                ShutterButton(videoMode = activeMode == CameraMode.Video, recording = isRecording, onClick = onShutter)
+                CameraSwitchButton(canSwitch, onSwitch)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LandscapeModeSelector(
+    activeMode: CameraMode,
+    availableModes: List<CameraMode>,
+    maxResolution: CameraResolution?,
+    onMode: (CameraMode) -> Unit,
+    onMore: () -> Unit,
+) {
+    val modes = listOf(CameraMode.Photo, CameraMode.Video).filter { it in availableModes }
+    modes.forEach { mode ->
+        val selected = mode == activeMode
+        Text(
+            text = mode.label(maxResolution),
+            color = if (selected) Color(0xFFFFD166) else Color.White.copy(alpha = 0.78f),
+            style = if (selected) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.heightIn(min = CameraUiTokens.minimumTouchTarget).clickable { onMode(mode) }
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+        )
+    }
+    Text(
+        text = "More",
+        color = if (activeMode !in modes) Color(0xFFFFD166) else Color.White.copy(alpha = 0.78f),
+        maxLines = 1,
+        softWrap = false,
+        modifier = Modifier.heightIn(min = CameraUiTokens.minimumTouchTarget)
+            .clickable(onClick = onMore).padding(horizontal = 8.dp, vertical = 12.dp),
+    )
+}
+
+@Composable
+private fun CompactLensSelector(
+    cameras: List<CameraCapability>,
+    activeCameraId: String?,
+    onCamera: (CameraCapability) -> Unit,
+) {
+    val activeIndex = cameras.indexOfFirst { it.cameraId == activeCameraId }.coerceAtLeast(0)
+    val active = cameras.getOrNull(activeIndex) ?: return
+    Surface(
+        onClick = { onCamera(cameras[(activeIndex + 1) % cameras.size]) },
+        shape = CircleShape,
+        color = Color.White,
+        modifier = Modifier.height(CameraUiTokens.minimumTouchTarget),
+    ) {
+        Box(Modifier.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+            Text(active.lensSelectorLabel(cameras), color = Color.Black, maxLines = 1, softWrap = false)
+        }
+    }
+}
+
+@Composable
+private fun ZoomButton(value: Float, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = if (selected) Color.White else Color.Black.copy(alpha = 0.42f),
+        modifier = Modifier.size(CameraUiTokens.minimumTouchTarget),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(formatZoom(value), color = if (selected) Color.Black else Color.White, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun CameraSwitchButton(enabled: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = CircleShape,
+        color = Color.White.copy(alpha = if (enabled) 0.16f else 0.07f),
+        modifier = Modifier.size(CameraUiTokens.secondaryControlSize),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.Cameraswitch, "Switch camera", tint = Color.White)
         }
     }
 }
@@ -838,21 +1071,14 @@ private fun QuickZoomRow(
     val values = buildList {
         if (minZoom < 0.95f) add(minZoom)
         add(1f.coerceIn(minZoom, maxZoom))
-        if (abs(zoom - 1f) >= 0.08f && abs(zoom - minZoom) >= 0.08f) add(zoom)
+        if (maxZoom >= 2f) add(2f)
+        if (maxZoom >= 5f) add(5f)
+        if (none { abs(it - zoom) < 0.08f }) add(zoom)
     }.distinctBy { (it * 10).toInt() }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         values.forEach { value ->
             val selected = abs(zoom - value) < 0.08f
-            Surface(
-                onClick = { if (selected) onToggleSlider() else onZoom(value) },
-                shape = CircleShape,
-                color = if (selected) Color.White else Color.Black.copy(alpha = 0.4f),
-                modifier = Modifier.size(if (selected) 42.dp else 36.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(formatZoom(value), color = if (selected) Color.Black else Color.White, style = MaterialTheme.typography.labelMedium)
-                }
-            }
+            ZoomButton(value, selected) { if (selected) onToggleSlider() else onZoom(value) }
         }
     }
 }
@@ -912,7 +1138,8 @@ private fun ModeCarousel(
                 style = if (selected) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 softWrap = false,
-                modifier = Modifier.clickable { onMode(mode) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.heightIn(min = CameraUiTokens.minimumTouchTarget)
+                    .clickable { onMode(mode) }.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
         Text(
@@ -920,7 +1147,8 @@ private fun ModeCarousel(
             color = if (activeMode !in mainModes) Color(0xFFFFD166) else Color.White.copy(alpha = 0.76f),
             maxLines = 1,
             softWrap = false,
-            modifier = Modifier.clickable(onClick = onMore).padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.heightIn(min = CameraUiTokens.minimumTouchTarget)
+                .clickable(onClick = onMore).padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }
 }
@@ -932,7 +1160,7 @@ private fun LatestMediaButton(bitmap: Bitmap?, hasMedia: Boolean, onClick: () ->
         enabled = hasMedia,
         shape = CircleShape,
         color = Color.White.copy(alpha = 0.14f),
-        modifier = Modifier.size(58.dp).border(1.dp, Color.White.copy(alpha = 0.65f), CircleShape),
+        modifier = Modifier.size(CameraUiTokens.secondaryControlSize).border(1.dp, Color.White.copy(alpha = 0.65f), CircleShape),
     ) {
         if (bitmap != null) {
             Image(bitmap.asImageBitmap(), "Latest captured media", Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
@@ -945,10 +1173,10 @@ private fun LatestMediaButton(bitmap: Bitmap?, hasMedia: Boolean, onClick: () ->
 @Composable
 private fun ShutterButton(videoMode: Boolean, recording: Boolean, onClick: () -> Unit) {
     Canvas(
-        Modifier.size(86.dp).clickable(onClick = onClick)
+        Modifier.size(CameraUiTokens.shutterOuterSize).clickable(onClick = onClick)
             .semantics { contentDescription = if (recording) "Stop recording" else if (videoMode) "Start video recording" else "Take photo" },
     ) {
-        drawCircle(Color.White, radius = size.minDimension / 2f, style = Stroke(width = 3.dp.toPx()))
+        drawCircle(Color.White, radius = size.minDimension / 2f, style = Stroke(width = CameraUiTokens.shutterStroke.toPx()))
         when {
             recording -> drawRoundRect(
                 Color(0xFFFF3B30),
@@ -1128,6 +1356,15 @@ private fun videoQualityLabel(width: Int, height: Int): String = when {
     width >= 1_920 || height >= 1_080 -> "1080p"
     width >= 1_280 || height >= 720 -> "720p"
     else -> "${minOf(width, height)}p"
+}
+
+private fun PhotoAspectRatio.shortLabel(): String = when (this) {
+    PhotoAspectRatio.FullSensor -> "Full"
+    PhotoAspectRatio.Ratio4x3 -> "4:3"
+    PhotoAspectRatio.Ratio3x2 -> "3:2"
+    PhotoAspectRatio.Ratio16x9 -> "16:9"
+    PhotoAspectRatio.Ratio1x1 -> "1:1"
+    PhotoAspectRatio.FullScreen -> "Screen"
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {

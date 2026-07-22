@@ -9,16 +9,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -49,38 +48,31 @@ import com.fatih.adaptivecompositioncamera.domain.model.CompositionGuide
 import com.fatih.adaptivecompositioncamera.domain.model.ForegroundZone
 import com.fatih.adaptivecompositioncamera.domain.model.GuideLineStyle
 import com.fatih.adaptivecompositioncamera.domain.model.GuideStyle
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
 import com.fatih.adaptivecompositioncamera.domain.model.SpiralOrientation
+import com.fatih.adaptivecompositioncamera.utility.CameraMath
 
 @Composable
 fun AspectRatioSheet(
-    resolutions: List<CameraResolution>,
-    selected: CameraResolution?,
-    onSelect: (CameraResolution) -> Unit,
+    sourceResolution: CameraResolution?,
+    selected: PhotoAspectRatio,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    onSelect: (PhotoAspectRatio) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val maximum = resolutions.firstOrNull()
-    val nativeRatios = resolutions.groupBy { it.aspectRatioLabel }.mapNotNull { (ratio, values) ->
-        val choice = values.firstOrNull { it.recommended } ?: values.firstOrNull()
-        choice?.let { ratio to it }
-    }.sortedBy { (ratio, _) -> listOf("4:3", "3:2", "16:9", "1:1").indexOf(ratio).let { if (it < 0) Int.MAX_VALUE else it } }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("Aspect ratio", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Native output ratios exposed by Android are listed below. Cropped ratios are never described as higher resolution.",
+                "Native capture size and output crop are separate. A crop is never presented as full-sensor resolution.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
             )
-            maximum?.let { resolution ->
-                RatioRow("Full sensor output", resolution, selected?.id == resolution.id) {
-                    onSelect(resolution)
-                    onDismiss()
-                }
-            }
-            nativeRatios.filterNot { it.second.id == maximum?.id }.forEach { (ratio, resolution) ->
-                RatioRow(ratio, resolution, selected?.id == resolution.id) {
-                    onSelect(resolution)
+            PhotoAspectRatio.entries.forEach { option ->
+                RatioRow(option, sourceResolution, viewportWidth, viewportHeight, selected == option) {
+                    onSelect(option)
                     onDismiss()
                 }
             }
@@ -89,15 +81,28 @@ fun AspectRatioSheet(
 }
 
 @Composable
-private fun RatioRow(label: String, resolution: CameraResolution, selected: Boolean, onClick: () -> Unit) {
+private fun RatioRow(
+    option: PhotoAspectRatio,
+    sourceResolution: CameraResolution?,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val dimensions = sourceResolution?.let {
+        CameraMath.cropDimensions(it.width, it.height, option, viewportWidth, viewportHeight)
+    }
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.titleMedium)
+            Text(option.label(), style = MaterialTheme.typography.titleMedium)
             Text(
-                "${resolution.megapixelLabel} — ${resolution.width} × ${resolution.height} — native ${resolution.format}",
+                dimensions?.let { (width, height) ->
+                    val kind = if (option == PhotoAspectRatio.FullSensor) "native" else "crop"
+                    "${CameraMath.megapixels(width, height)} MP - $width x $height - $kind JPEG"
+                } ?: "Available after camera discovery",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -118,7 +123,7 @@ fun ResolutionSheet(
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("Photo resolution", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Only JPEG sizes exposed to third-party Android apps are selectable.",
+                "Normal and maximum-resolution JPEG sizes exposed to third-party Android apps are listed separately.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
@@ -136,6 +141,7 @@ fun ResolutionSheet(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(resolution.megapixelLabel, style = MaterialTheme.typography.titleMedium)
                                 when {
+                                    resolution.maximumSensorMode -> Badge("Maximum sensor mode")
                                     resolution.recommended -> Badge("Recommended")
                                     resolution.maximum -> Badge("Maximum")
                                 }
@@ -145,6 +151,13 @@ fun ResolutionSheet(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (resolution.maximumSensorMode) {
+                                Text(
+                                    "Large file - slower capture - incompatible features are disabled",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                )
+                            }
                         }
                         if (selected?.id == resolution.id) Icon(Icons.Rounded.Check, contentDescription = "Selected")
                     }
@@ -181,24 +194,20 @@ fun CompositionSheet(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text("Composition guide", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 4.dp))
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(142.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 12.dp).heightIn(max = 360.dp),
-            ) {
-                items(CompositionGuide.entries, key = { it.name }) { guide ->
-                    GuideTile(
-                        guide = guide,
-                        selected = guide == selected,
-                        style = style,
-                        onClick = {
-                            onSelect(guide)
-                            onDismiss()
-                        },
-                    )
-                }
-            }
+            Text(
+                "${professionalGuideCatalog.size} photographic guides · Tap a card to apply",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp).padding(top = 3.dp, bottom = 12.dp),
+            )
+            GuideCatalogGrid(
+                selected = selected,
+                style = style,
+                onSelect = { guide ->
+                    onSelect(guide)
+                    onDismiss()
+                },
+            )
             HorizontalDivider(Modifier.padding(vertical = 14.dp))
             Text("Guide appearance", style = MaterialTheme.typography.titleMedium)
             Row(
@@ -379,14 +388,48 @@ fun CompositionSheet(
 }
 
 @Composable
+private fun GuideCatalogGrid(
+    selected: CompositionGuide,
+    style: GuideStyle,
+    onSelect: (CompositionGuide) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val columnCount = if (maxWidth >= 600.dp) 3 else 2
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            professionalGuideCatalog.chunked(columnCount).forEach { guides ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    guides.forEach { guide ->
+                        GuideTile(
+                            guide = guide,
+                            selected = guide == selected,
+                            style = style,
+                            onClick = { onSelect(guide) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    repeat(columnCount - guides.size) {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun GuideTile(
     guide: CompositionGuide,
     selected: Boolean,
     style: GuideStyle,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
+        modifier = modifier.heightIn(min = 156.dp),
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.small,
         border = if (selected) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
@@ -394,12 +437,40 @@ private fun GuideTile(
         Column(Modifier.padding(8.dp)) {
             Box(Modifier.fillMaxWidth().aspectRatio(1.45f).background(Color(0xFF24282D))) {
                 CompositionGuideOverlay(guide, mirrored = false, style = style.copy(thicknessDp = 1f, opacity = 0.8f))
+                if (selected) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).size(24.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = "Selected guide",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(4.dp),
+                        )
+                    }
+                }
             }
             Text(guide.title(), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 7.dp))
             Text(guide.description(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
         }
     }
 }
+
+internal val professionalGuideCatalog = listOf(
+    CompositionGuide.None,
+    CompositionGuide.RuleOfThirds,
+    CompositionGuide.GoldenRatio,
+    CompositionGuide.GoldenSpiral,
+    CompositionGuide.VanishingPoint,
+    CompositionGuide.FrameInFrame,
+    CompositionGuide.Centered,
+    CompositionGuide.TextureRepetition,
+    CompositionGuide.Foreground,
+    CompositionGuide.EyeLine,
+    CompositionGuide.HorizonLevel,
+)
 
 @Composable
 fun MoreModesSheet(
@@ -507,4 +578,13 @@ private fun SpiralOrientation.shortLabel(): String = when (this) {
     SpiralOrientation.TopRight -> "TR"
     SpiralOrientation.BottomLeft -> "BL"
     SpiralOrientation.BottomRight -> "BR"
+}
+
+fun PhotoAspectRatio.label(): String = when (this) {
+    PhotoAspectRatio.FullSensor -> "Full sensor"
+    PhotoAspectRatio.Ratio4x3 -> "4:3"
+    PhotoAspectRatio.Ratio3x2 -> "3:2"
+    PhotoAspectRatio.Ratio16x9 -> "16:9"
+    PhotoAspectRatio.Ratio1x1 -> "1:1"
+    PhotoAspectRatio.FullScreen -> "Full screen"
 }

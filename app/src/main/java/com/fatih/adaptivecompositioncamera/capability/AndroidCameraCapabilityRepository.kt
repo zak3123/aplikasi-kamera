@@ -77,6 +77,7 @@ class AndroidCameraCapabilityRepository(
             streamMap?.getOutputSizes(ImageFormat.HEIC).orEmpty().toList()
         } else emptyList()
         val rawSizes = streamMap?.getOutputSizes(ImageFormat.RAW_SENSOR).orEmpty().toList()
+        val yuvSizes = streamMap?.getOutputSizes(ImageFormat.YUV_420_888).orEmpty().toList()
         val privateSizes = streamMap?.getOutputSizes(MediaRecorder::class.java).orEmpty().toList()
         val focalLengths = c.safe(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.toList().orEmpty()
         val physicalSize = c.safe(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
@@ -91,7 +92,9 @@ class AndroidCameraCapabilityRepository(
             hardwareLevel = c.safe(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL).toHardwareLevel(),
             sensorOrientation = c.safe(CameraCharacteristics.SENSOR_ORIENTATION),
             activeArray = c.safe(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)?.flattenToString(),
+            preCorrectionActiveArray = c.safe(CameraCharacteristics.SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE)?.flattenToString(),
             pixelArray = c.safe(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)?.toText(),
+            physicalSize = physicalSize?.let { "${it.width} x ${it.height} mm" },
             physicalCameraIds = physicalIds,
             focalLengths = focalLengths,
             apertures = c.safe(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)?.toList().orEmpty(),
@@ -107,6 +110,7 @@ class AndroidCameraCapabilityRepository(
             },
             heicResolutions = CameraMath.sortResolutions(heicSizes, "HEIC"),
             rawResolutions = CameraMath.sortResolutions(rawSizes, "DNG"),
+            yuvResolutions = CameraMath.sortResolutions(yuvSizes, "YUV_420_888"),
             videoResolutions = CameraMath.sortResolutions(privateSizes, "MP4"),
             fpsRanges = c.safe(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)?.toList().orEmpty().map { it.toText() },
             highSpeedVideo = streamMap.highSpeedOptions(),
@@ -134,10 +138,13 @@ class AndroidCameraCapabilityRepository(
                     add("This camera is not marked as backward-compatible for normal third-party camera capture.")
                 }
                 val sensorPixels = c.safe(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
-                if (sensorPixels != null && maxJpeg != null) {
+                val maximumApplicationJpeg = (maximumJpegSizes + jpegSizes)
+                    .maxByOrNull { it.width.toLong() * it.height }
+                if (sensorPixels != null && maximumApplicationJpeg != null) {
                     val sensorMp = CameraMath.megapixels(sensorPixels.width, sensorPixels.height)
-                    if (sensorMp > maxJpeg.megapixels + 1.0 && maximumJpegSizes.isEmpty()) {
-                        add("This device may use a higher-resolution image sensor, but Android exposes a maximum application JPEG output of ${maxJpeg.width} x ${maxJpeg.height}, approximately ${maxJpeg.megapixels} MP.")
+                    val outputMp = CameraMath.megapixels(maximumApplicationJpeg.width, maximumApplicationJpeg.height)
+                    if (sensorMp > outputMp + 1.0 && maximumJpegSizes.isEmpty()) {
+                        add("This device may use a higher-resolution image sensor, but Android exposes a maximum application capture output of ${maximumApplicationJpeg.width} x ${maximumApplicationJpeg.height}, approximately $outputMp MP.")
                     }
                 }
             },

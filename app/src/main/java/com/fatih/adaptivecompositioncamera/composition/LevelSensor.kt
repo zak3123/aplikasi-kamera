@@ -5,6 +5,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Build
 import android.view.Surface
 import android.view.WindowManager
 import androidx.compose.runtime.Composable
@@ -38,8 +39,12 @@ fun rememberLevelReading(enabled: Boolean): LevelReading {
                 filteredX += alpha * (event.values[0] - filteredX)
                 filteredY += alpha * (event.values[1] - filteredY)
                 filteredZ += alpha * (event.values[2] - filteredZ)
-                val rotation = (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager)
-                    .defaultDisplay.rotation
+                val rotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    context.display?.rotation ?: Surface.ROTATION_0
+                } else {
+                    @Suppress("DEPRECATION")
+                    (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.rotation
+                }
                 val (screenX, screenY) = when (rotation) {
                     Surface.ROTATION_90 -> filteredY to -filteredX
                     Surface.ROTATION_180 -> -filteredX to -filteredY

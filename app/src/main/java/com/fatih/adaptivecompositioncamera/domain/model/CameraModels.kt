@@ -28,6 +28,16 @@ enum class CameraMode {
 }
 
 @Serializable
+enum class PhotoAspectRatio {
+    FullSensor,
+    Ratio4x3,
+    Ratio3x2,
+    Ratio16x9,
+    Ratio1x1,
+    FullScreen,
+}
+
+@Serializable
 enum class CompositionGuide {
     None,
     RuleOfThirds,
@@ -123,7 +133,9 @@ data class CameraCapability(
     val hardwareLevel: HardwareLevel,
     val sensorOrientation: Int?,
     val activeArray: String?,
+    val preCorrectionActiveArray: String? = null,
     val pixelArray: String?,
+    val physicalSize: String? = null,
     val physicalCameraIds: List<String>,
     val focalLengths: List<Float>,
     val apertures: List<Float>,
@@ -137,6 +149,7 @@ data class CameraCapability(
     val maximumResolutionJpegs: List<CameraResolution> = emptyList(),
     val heicResolutions: List<CameraResolution> = emptyList(),
     val rawResolutions: List<CameraResolution>,
+    val yuvResolutions: List<CameraResolution> = emptyList(),
     val videoResolutions: List<CameraResolution>,
     val fpsRanges: List<String>,
     val highSpeedVideo: List<HighSpeedVideoOption>,
@@ -155,10 +168,18 @@ data class CameraCapability(
     val unavailableReasons: List<String> = emptyList(),
 ) {
     val selectablePhotoResolutions: List<CameraResolution>
-        get() = jpegResolutions
+        get() = (maximumResolutionJpegs + jpegResolutions)
+            .distinctBy { "${it.width}:${it.height}:${it.format}" }
+            .sortedByDescending { it.width.toLong() * it.height }
 
     val displayMaximumResolution: CameraResolution?
         get() = (maximumResolutionJpegs + jpegResolutions).maxByOrNull { it.width.toLong() * it.height }
+
+    val normalMaximumResolution: CameraResolution?
+        get() = jpegResolutions.maxByOrNull { it.width.toLong() * it.height }
+
+    val maximumSensorResolution: CameraResolution?
+        get() = maximumResolutionJpegs.maxByOrNull { it.width.toLong() * it.height }
 }
 
 @Serializable
@@ -174,6 +195,8 @@ data class AppSettings(
     val selectedResolutionIds: Map<String, String> = emptyMap(),
     val mode: CameraMode = CameraMode.Photo,
     val guide: CompositionGuide = CompositionGuide.RuleOfThirds,
+    val photoAspectRatio: PhotoAspectRatio = PhotoAspectRatio.FullSensor,
+    val matchPreviewCrop: Boolean = true,
     val keepScreenAwake: Boolean = true,
     val mirrorFrontPreview: Boolean = true,
     val saveMirroredSelfie: Boolean = false,
@@ -190,6 +213,12 @@ data class CameraDiagnostics(
     val sessionState: String = "Discovering",
     val mode: CameraMode = CameraMode.Photo,
     val activeResolution: String? = null,
+    val requestedResolution: String? = null,
+    val boundCaptureResolution: String? = null,
+    val actualSavedResolution: String? = null,
+    val selectedAspectRatio: String? = null,
+    val sensorPixelMode: String = "Normal",
+    val configurationMismatch: String? = null,
     val previewResolution: String? = null,
     val currentFps: String? = null,
     val stabilization: String = "Off",
@@ -236,6 +265,8 @@ data class RuntimeCameraInfo(
     val videoHeight: Int = 0,
     val previewWidth: Int = 0,
     val previewHeight: Int = 0,
+    val targetRotation: Int = 0,
+    val sensorPixelMode: String = "Normal",
 )
 
 data class MediaItem(
@@ -247,6 +278,10 @@ data class MediaItem(
     val height: Int = 0,
     val durationMillis: Long = 0,
     val sizeBytes: Long = 0,
+    val rotationDegrees: Int = 0,
+    val cameraId: String? = null,
+    val requestedResolution: String? = null,
+    val boundResolution: String? = null,
 ) {
     val isVideo: Boolean get() = mimeType.startsWith("video/")
 }

@@ -10,4 +10,8 @@ Adaptive Composition Camera uses a small layered architecture:
 
 `CameraRuntime` publishes an explicit sealed session state (`PermissionRequired`, `Discovering`, `Binding`, `Ready`, `Focusing`, `Capturing`, recording transitions, switching/reconfiguration, `Error`, and `Released`). Bind generations discard stale rapid-reconfiguration callbacks. Requested stream combinations are tried once; if Android rejects one, the runtime binds a conservative preview-plus-photo configuration and the UI returns to Photo mode. Diagnostics receives the live state, actual bound use-case resolutions, and the most recent camera, capture, and recording errors.
 
+Normal capture binds Preview and ImageCapture/VideoCapture as a `UseCaseGroup` with one `ViewPort`. The measured Compose preview box is also the clipping and normalized-coordinate boundary for every composition renderer and interactive guide. Portrait and landscape use separate layout policies from `CameraUiLayout.kt`, while camera state and capture actions remain shared.
+
+The resolution model deliberately separates the Android-exposed native source, selected output crop, CameraX-bound stream, and verified saved JPEG header dimensions. API 31+ maximum-resolution stream-map entries retain their sensor-pixel-mode marker and are never removed by the selected aspect ratio.
+
 Camera and photo-resolution selections are persisted per Android camera ID. The UI never assumes camera ID 0 or exposes a depth-only/non-backward-compatible camera as a photographic lens.

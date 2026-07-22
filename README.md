@@ -14,6 +14,9 @@ Native Android camera app using Kotlin, Jetpack Compose, Material 3, CameraX, Ca
 - Settings persisted with DataStore.
 - JSON capability export/copy/share.
 - Responsive phone, tablet, rotation, and resizable-window behavior.
+- Separate portrait and landscape camera chrome, with a compact portrait gradient and a safe-edge landscape capture rail.
+- Native capture resolution, preview/output crop, bound CameraX resolution, and actual saved JPEG dimensions are tracked separately.
+- Normal and API 31+ maximum-resolution JPEG maps are merged without aspect-ratio filtering; maximum sensor-pixel mode is requested only for an exposed maximum-resolution output.
 - No ads, no analytics, no network permission, no mandatory account, and no cloud upload.
 
 ## Architecture
@@ -40,7 +43,7 @@ The app is intentionally split so CameraX session control, Camera2 discovery, se
 
 ## Build
 
-Open `D:\AdaptiveCompositionCamera` in Android Studio, let Gradle sync, then run the `app` configuration.
+Open `D:\aplikasi-kamera` in Android Studio, let Gradle sync, then run the `app` configuration.
 
 Command-line build used in this workspace:
 
@@ -48,7 +51,7 @@ Command-line build used in this workspace:
 $env:JAVA_HOME='D:\AdaptiveCompositionCameraTools\jdk-17'
 $env:ANDROID_HOME='D:\AndroidSdk'
 $env:ANDROID_SDK_ROOT='D:\AndroidSdk'
-D:\AdaptiveCompositionCamera\gradlew.bat :app:assembleDebug
+D:\aplikasi-kamera\gradlew.bat :app:assembleDebug
 ```
 
 ## Camera Limitations

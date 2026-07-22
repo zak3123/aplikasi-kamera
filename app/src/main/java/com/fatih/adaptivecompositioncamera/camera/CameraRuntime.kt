@@ -5,20 +5,26 @@ import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.camera2.CaptureRequest
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Size
+import android.util.Rational
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCase
+import androidx.camera.core.UseCaseGroup
+import androidx.camera.core.ViewPort
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
@@ -74,6 +80,10 @@ class CameraRuntime(
         cameraId: String?,
         resolution: CameraResolution?,
         mode: CameraMode,
+        viewportWidth: Int,
+        viewportHeight: Int,
+        targetRotation: Int,
+        matchPreviewCrop: Boolean,
         onBound: (RuntimeCameraInfo) -> Unit,
         onError: (String) -> Unit,
     ) {
@@ -96,9 +106,14 @@ class CameraRuntime(
                 }
             }
             val selector = selectorBuilder.build()
-            val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
+            val preview = Preview.Builder()
+                .setTargetRotation(targetRotation)
+                .build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
             previewUseCase = preview
-            val captureBuilder = ImageCapture.Builder().setCaptureMode(
+            val maximumSensorMode = mode == CameraMode.MaximumResolution && resolution?.maximumSensorMode == true
+            val captureBuilder = ImageCapture.Builder()
+                .setTargetRotation(targetRotation)
+                .setCaptureMode(
                 if (mode == CameraMode.MaximumResolution) ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
                 else ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY,
             )
@@ -107,30 +122,45 @@ class CameraRuntime(
                     .setResolutionStrategy(
                         ResolutionStrategy(
                             Size(resolution.width, resolution.height),
-                            ResolutionStrategy.FALLBACK_RULE_NONE,
+                            if (mode == CameraMode.MaximumResolution) ResolutionStrategy.FALLBACK_RULE_NONE
+                            else ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
                         ),
                     ).build()
                 captureBuilder.setResolutionSelector(resolutionSelector)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && maximumSensorMode) {
+                Camera2Interop.Extender(captureBuilder).setCaptureRequestOption(
+                    CaptureRequest.SENSOR_PIXEL_MODE,
+                    CaptureRequest.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION,
+                )
             }
             val requestedCapture = captureBuilder.build()
             val recorder = Recorder.Builder()
                 .setQualitySelector(
                     QualitySelector.from(Quality.FHD, FallbackStrategy.higherQualityOrLowerThan(Quality.FHD)),
                 ).build()
-            val requestedVideo = VideoCapture.withOutput(recorder)
+            val requestedVideo = VideoCapture.Builder(recorder)
+                .setTargetRotation(targetRotation)
+                .build()
 
             try {
                 cameraProvider.unbindAll()
                 if (mode == CameraMode.Video) {
-                    camera = cameraProvider.bindToLifecycle(lifecycleOwner, selector, preview, requestedVideo)
+                    camera = bindUseCases(
+                        cameraProvider, lifecycleOwner, selector, preview, requestedVideo,
+                        viewportWidth, viewportHeight, targetRotation, matchPreviewCrop,
+                    )
                     imageCapture = null
                     videoCapture = requestedVideo
                 } else {
-                    camera = cameraProvider.bindToLifecycle(lifecycleOwner, selector, preview, requestedCapture)
+                    camera = bindUseCases(
+                        cameraProvider, lifecycleOwner, selector, preview, requestedCapture,
+                        viewportWidth, viewportHeight, targetRotation, matchPreviewCrop,
+                    )
                     imageCapture = requestedCapture
                     videoCapture = null
                 }
-                completeBind(onBound)
+                completeBind(targetRotation, maximumSensorMode, onBound)
             } catch (requestedFailure: RuntimeException) {
                 bindSafePhotoFallback(
                     cameraProvider = cameraProvider,
@@ -138,6 +168,10 @@ class CameraRuntime(
                     selector = selector,
                     preview = preview,
                     requestedFailure = requestedFailure,
+                    viewportWidth = viewportWidth,
+                    viewportHeight = viewportHeight,
+                    targetRotation = targetRotation,
+                    matchPreviewCrop = matchPreviewCrop,
                     onBound = onBound,
                     onError = onError,
                 )
@@ -151,25 +185,59 @@ class CameraRuntime(
         selector: CameraSelector,
         preview: Preview,
         requestedFailure: RuntimeException,
+        viewportWidth: Int,
+        viewportHeight: Int,
+        targetRotation: Int,
+        matchPreviewCrop: Boolean,
         onBound: (RuntimeCameraInfo) -> Unit,
         onError: (String) -> Unit,
     ) {
         try {
             cameraProvider.unbindAll()
             val safeCapture = ImageCapture.Builder()
+                .setTargetRotation(targetRotation)
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .build()
-            camera = cameraProvider.bindToLifecycle(lifecycleOwner, selector, preview, safeCapture)
+            camera = bindUseCases(
+                cameraProvider, lifecycleOwner, selector, preview, safeCapture,
+                viewportWidth, viewportHeight, targetRotation, matchPreviewCrop,
+            )
             imageCapture = safeCapture
             videoCapture = null
-            completeBind(onBound)
+            completeBind(targetRotation, false, onBound)
             onError("The requested camera configuration was not accepted. A safe photo configuration was restored. ${requestedFailure.message.orEmpty()}")
         } catch (fallbackFailure: RuntimeException) {
             fail(fallbackFailure.message ?: "Unable to bind a usable camera configuration.", onError)
         }
     }
 
-    private fun completeBind(onBound: (RuntimeCameraInfo) -> Unit) {
+    private fun bindUseCases(
+        cameraProvider: ProcessCameraProvider,
+        lifecycleOwner: LifecycleOwner,
+        selector: CameraSelector,
+        preview: Preview,
+        captureUseCase: UseCase,
+        viewportWidth: Int,
+        viewportHeight: Int,
+        targetRotation: Int,
+        matchPreviewCrop: Boolean,
+    ): Camera {
+        val group = UseCaseGroup.Builder()
+            .addUseCase(preview)
+            .addUseCase(captureUseCase)
+            .apply {
+                if (matchPreviewCrop && viewportWidth > 0 && viewportHeight > 0) {
+                    setViewPort(
+                        ViewPort.Builder(Rational(viewportWidth, viewportHeight), targetRotation)
+                            .setScaleType(ViewPort.FILL_CENTER)
+                            .build(),
+                    )
+                }
+            }.build()
+        return cameraProvider.bindToLifecycle(lifecycleOwner, selector, group)
+    }
+
+    private fun completeBind(targetRotation: Int, maximumSensorMode: Boolean, onBound: (RuntimeCameraInfo) -> Unit) {
         val info = camera?.cameraInfo
         val zoomState = info?.zoomState?.value
         val exposure = info?.exposureState?.exposureCompensationRange
@@ -190,6 +258,8 @@ class CameraRuntime(
                 videoHeight = videoResolution?.height ?: 0,
                 previewWidth = previewResolution?.width ?: 0,
                 previewHeight = previewResolution?.height ?: 0,
+                targetRotation = targetRotation,
+                sensorPixelMode = if (maximumSensorMode) "Maximum Resolution" else "Normal",
             ),
         )
     }
@@ -315,14 +385,14 @@ class CameraRuntime(
     } ?: false
 
     fun setFlashMode(mode: FlashMode): Boolean {
-        val capture = imageCapture ?: return false
         val hasFlash = camera?.cameraInfo?.hasFlashUnit() == true
         if (!hasFlash && mode != FlashMode.Off) return false
         if (mode == FlashMode.Torch) {
             camera?.cameraControl?.enableTorch(true)
-            capture.flashMode = ImageCapture.FLASH_MODE_OFF
+            imageCapture?.flashMode = ImageCapture.FLASH_MODE_OFF
         } else {
             camera?.cameraControl?.enableTorch(false)
+            val capture = imageCapture ?: return mode == FlashMode.Off
             capture.flashMode = when (mode) {
                 FlashMode.Off -> ImageCapture.FLASH_MODE_OFF
                 FlashMode.Auto -> ImageCapture.FLASH_MODE_AUTO

@@ -8,16 +8,19 @@ import com.fatih.adaptivecompositioncamera.domain.model.CameraCapability
 import com.fatih.adaptivecompositioncamera.domain.model.CameraConfiguration
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
+import com.fatih.adaptivecompositioncamera.domain.model.CompositionGuide
 import com.fatih.adaptivecompositioncamera.domain.model.ExtensionSupport
 import com.fatih.adaptivecompositioncamera.domain.model.HardwareLevel
 import com.fatih.adaptivecompositioncamera.domain.model.HighSpeedVideoOption
 import com.fatih.adaptivecompositioncamera.domain.model.LensFacing
 import com.fatih.adaptivecompositioncamera.domain.model.LensRole
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
 import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
 import com.fatih.adaptivecompositioncamera.media.AndroidMediaRepository
 import com.fatih.adaptivecompositioncamera.utility.AdaptiveLayout
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
 import com.fatih.adaptivecompositioncamera.utility.FloatPoint
+import com.fatih.adaptivecompositioncamera.ui.camera.professionalGuideCatalog
 import kotlin.math.cos
 import kotlin.math.sin
 import org.junit.Assert.assertEquals
@@ -27,6 +30,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CameraMathTest {
+    @Test
+    fun professionalCompositionCatalogContainsEverySupportedGuide() {
+        assertEquals(
+            setOf(
+                CompositionGuide.None,
+                CompositionGuide.RuleOfThirds,
+                CompositionGuide.GoldenRatio,
+                CompositionGuide.GoldenSpiral,
+                CompositionGuide.VanishingPoint,
+                CompositionGuide.FrameInFrame,
+                CompositionGuide.Centered,
+                CompositionGuide.TextureRepetition,
+                CompositionGuide.Foreground,
+                CompositionGuide.EyeLine,
+                CompositionGuide.HorizonLevel,
+            ),
+            CompositionGuide.entries.toSet(),
+        )
+        assertEquals(11, CompositionGuide.entries.size)
+        assertEquals(CompositionGuide.entries.toSet(), professionalGuideCatalog.toSet())
+        assertEquals(11, professionalGuideCatalog.size)
+    }
+
     @Test
     fun megapixelsAreCalculatedFromActualOutputResolution() {
         assertEquals(48.0, CameraMath.megapixels(8000, 6000), 0.0)
@@ -40,6 +66,24 @@ class CameraMathTest {
         assertEquals("4:3", CameraMath.aspectRatioLabel(4000, 3000))
         assertEquals("16:9", CameraMath.aspectRatioLabel(3840, 2160))
         assertEquals("1:1", CameraMath.aspectRatioLabel(3000, 3000))
+    }
+
+    @Test
+    fun nativeResolutionAndOutputCropRemainSeparate() {
+        assertEquals(8000 to 6000, CameraMath.cropDimensions(8000, 6000, PhotoAspectRatio.FullSensor))
+        assertEquals(6000 to 6000, CameraMath.cropDimensions(8000, 6000, PhotoAspectRatio.Ratio1x1))
+        assertEquals(8000 to 4500, CameraMath.cropDimensions(8000, 6000, PhotoAspectRatio.Ratio16x9))
+        assertEquals(36.0, CameraMath.megapixels(6000, 6000), 0.0)
+    }
+
+    @Test
+    fun previewViewportFitsPhoneAndTabletWithoutStretching() {
+        val portrait = CameraMath.fitAspectRatio(1080f, 2100f, 3f / 4f)
+        val landscape = CameraMath.fitAspectRatio(1800f, 1080f, 4f / 3f)
+        assertEquals(0.75f, portrait.width / portrait.height, 0.001f)
+        assertEquals(4f / 3f, landscape.width / landscape.height, 0.001f)
+        assertTrue(portrait.left >= 0f && portrait.bottom <= 2100f)
+        assertTrue(landscape.left >= 0f && landscape.right <= 1800f)
     }
 
     @Test
@@ -201,6 +245,16 @@ class CameraMathTest {
         assertEquals(12.0, binnedOnly.displayMaximumResolution?.megapixels ?: 0.0, 0.0)
     }
 
+    @Test
+    fun maximumResolutionStreamMapIsIncludedWithoutAspectFiltering() {
+        val recommended = resolution(4032, 3024, recommended = true)
+        val maximum = resolution(8000, 6000).copy(maximumSensorMode = true)
+        val capability = fakeCapability(jpeg = listOf(recommended), maximumJpeg = listOf(maximum))
+        assertEquals(8000, capability.selectablePhotoResolutions.first().width)
+        assertTrue(capability.selectablePhotoResolutions.first().maximumSensorMode)
+        assertTrue(CameraMode.MaximumResolution in CameraConfigurationResolver().availableModes(capability))
+    }
+
     private fun arcPoint(bounds: com.fatih.adaptivecompositioncamera.utility.FloatBounds, angleDegrees: Float): FloatPoint {
         val radians = Math.toRadians(angleDegrees.toDouble())
         val centerX = (bounds.left + bounds.right) / 2f
@@ -230,6 +284,7 @@ class CameraMathTest {
 
     private fun fakeCapability(
         jpeg: List<CameraResolution> = emptyList(),
+        maximumJpeg: List<CameraResolution> = emptyList(),
         video: List<CameraResolution> = listOf(resolution(1920, 1080)),
         highSpeed: List<HighSpeedVideoOption> = emptyList(),
         stabilization: StabilizationSupport = StabilizationSupport(false, false, false),
@@ -252,6 +307,7 @@ class CameraMathTest {
         exposureTimeRange = null,
         exposureCompensationRange = null,
         jpegResolutions = jpeg,
+        maximumResolutionJpegs = maximumJpeg,
         rawResolutions = emptyList(),
         videoResolutions = video,
         fpsRanges = listOf("30..60"),

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.1
+
+- Fixed the composition sheet so all 11 implemented photographic guides are reachable instead of only the first four.
+- Replaced the nested height-limited lazy grid with one responsive sheet scroll and a two-column phone / three-column wide-layout catalog.
+- Reordered guide cards into a photography-oriented sequence and added an explicit catalog count plus selected-card indicator.
+- Added regression coverage proving the professional guide catalog contains every supported guide exactly once.
+
+## 0.4.0
+
+- Replaced the shared translucent camera dashboard with distinct compact portrait controls and a safe-edge landscape capture rail.
+- Unified PreviewView, focus/exposure gestures, guide interaction, and guide rendering inside one measured and clipped preview viewport.
+- Added CameraX `UseCaseGroup`/`ViewPort` binding, display target rotation, and an optional match-preview-crop setting.
+- Separated native capture resolution from 4:3, 3:2, 16:9, 1:1, and full-screen output crops with calculated output dimensions and megapixels.
+- Included API 31+ maximum-resolution JPEG stream-map outputs in selection and requested maximum sensor-pixel mode only for marked maximum outputs.
+- Added requested, bound, actual saved, sensor-pixel-mode, aspect-ratio, and mismatch diagnostics.
+- Verified saved JPEG dimensions from image headers without decoding full-resolution bitmaps and expanded viewer metadata.
+- Added immersive transient system-bar behavior and centralized camera UI dimension tokens.
+- Expanded unit coverage for crop calculations, maximum-resolution stream maps, and adaptive preview viewport fitting.
+
 ## 0.3.0
 
 - Added persisted Android camera-ID selection and per-camera output resolution selection with safe lens labels.

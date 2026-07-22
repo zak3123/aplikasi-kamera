@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.fatih.adaptivecompositioncamera.domain.model.AppSettings
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CompositionGuide
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -19,6 +20,8 @@ class SettingsRepository(private val context: Context) {
     private val modeKey = stringPreferencesKey("mode")
     private val selectedCameraKey = stringPreferencesKey("selected_camera_id")
     private val selectedResolutionsKey = stringSetPreferencesKey("selected_resolution_ids")
+    private val photoAspectRatioKey = stringPreferencesKey("photo_aspect_ratio")
+    private val matchPreviewCropKey = booleanPreferencesKey("match_preview_crop")
     private val mirrorPreviewKey = booleanPreferencesKey("mirror_front_preview")
     private val mirrorSaveKey = booleanPreferencesKey("save_mirrored_selfie")
     private val screenFlashKey = booleanPreferencesKey("screen_flash")
@@ -37,6 +40,10 @@ class SettingsRepository(private val context: Context) {
             }.toMap(),
             mode = prefs[modeKey]?.let(::cameraModeFromStoredValue) ?: CameraMode.Photo,
             guide = prefs[guideKey]?.let(::guideFromStoredValue) ?: CompositionGuide.RuleOfThirds,
+            photoAspectRatio = prefs[photoAspectRatioKey]?.let { stored ->
+                runCatching { PhotoAspectRatio.valueOf(stored) }.getOrDefault(PhotoAspectRatio.FullSensor)
+            } ?: PhotoAspectRatio.FullSensor,
+            matchPreviewCrop = prefs[matchPreviewCropKey] ?: true,
             mirrorFrontPreview = prefs[mirrorPreviewKey] ?: true,
             saveMirroredSelfie = prefs[mirrorSaveKey] ?: false,
             screenFlash = prefs[screenFlashKey] ?: true,
@@ -67,6 +74,14 @@ class SettingsRepository(private val context: Context) {
             values += "$cameraId=$resolutionId"
             prefs[selectedResolutionsKey] = values
         }
+    }
+
+    suspend fun setPhotoAspectRatio(aspectRatio: PhotoAspectRatio) {
+        context.dataStore.edit { it[photoAspectRatioKey] = aspectRatio.name }
+    }
+
+    suspend fun setMatchPreviewCrop(enabled: Boolean) {
+        context.dataStore.edit { it[matchPreviewCropKey] = enabled }
     }
 
     suspend fun setMirrorPreview(enabled: Boolean) {

@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
@@ -39,6 +39,8 @@ import com.fatih.adaptivecompositioncamera.domain.model.CapabilityReport
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+private val CapabilityJson = Json { prettyPrint = true }
+
 @Composable
 fun CapabilityScreen(
     report: CapabilityReport?,
@@ -51,14 +53,14 @@ fun CapabilityScreen(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    val json = remember(report) { report?.let { Json { prettyPrint = true }.encodeToString(it) }.orEmpty() }
+    val json = remember(report) { report?.let { CapabilityJson.encodeToString(it) }.orEmpty() }
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
                 modifier = Modifier.statusBarsPadding(),
                 title = { Text(if (diagnosticsMode) "Diagnostics" else "Camera information") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back to settings") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to settings") } },
                 actions = {
                     IconButton(onClick = onRefresh) { Icon(Icons.Rounded.Refresh, "Refresh camera information") }
                     IconButton(enabled = json.isNotBlank(), onClick = { clipboard.setText(AnnotatedString(json)) }) {
@@ -104,6 +106,12 @@ private fun RuntimeDiagnosticsSection(diagnostics: CameraDiagnostics) {
         Info("Session state", diagnostics.sessionState)
         Info("Current mode", diagnostics.mode.name)
         Info("Active resolution", diagnostics.activeResolution ?: "Unknown")
+        Info("Requested native resolution", diagnostics.requestedResolution ?: "Unknown")
+        Info("Bound ImageCapture resolution", diagnostics.boundCaptureResolution ?: "Unknown")
+        Info("Actual saved output", diagnostics.actualSavedResolution ?: "No capture in this session")
+        Info("Selected aspect ratio", diagnostics.selectedAspectRatio ?: "Unknown")
+        Info("Sensor pixel mode", diagnostics.sensorPixelMode)
+        Info("Configuration match", diagnostics.configurationMismatch ?: "No mismatch detected")
         Info("Preview resolution", diagnostics.previewResolution ?: "Reported at runtime")
         Info("Current FPS", diagnostics.currentFps ?: "Camera-managed")
         Info("Stabilization", diagnostics.stabilization)
@@ -141,10 +149,13 @@ private fun CameraCapabilitySection(camera: CameraCapability, diagnosticsMode: B
         if (diagnosticsMode) {
             Info("Sensor orientation", camera.sensorOrientation?.toString() ?: "Unknown")
             Info("Active array", camera.activeArray ?: "Unknown")
+            Info("Pre-correction active array", camera.preCorrectionActiveArray ?: "Unknown")
             Info("Pixel array", camera.pixelArray ?: "Unknown")
+            Info("Physical sensor size", camera.physicalSize ?: "Unknown")
             Info("ISO", camera.isoRange ?: "Unavailable")
             Info("Exposure time", camera.exposureTimeRange ?: "Unavailable")
             Info("Exposure compensation", camera.exposureCompensationRange ?: "Unavailable")
+            Info("YUV outputs", camera.yuvResolutions.take(8).joinToString { "${it.width}x${it.height}" }.ifBlank { "Unavailable" })
         }
         camera.unavailableReasons.forEach { reason ->
             Text(reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
