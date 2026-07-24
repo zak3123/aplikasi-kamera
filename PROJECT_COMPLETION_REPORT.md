@@ -2,71 +2,68 @@
 
 ## Completion
 
-- Completion date and time: 2026-07-23 06:06:11 +07:00 (Asia/Jakarta)
+- Completion date and time: 2026-07-24 19:18:57 +07:00 (Asia/Jakarta)
 - Project directory: `D:\aplikasi-kamera`
 - Application ID: `com.fatih.adaptivecompositioncamera`
-- Version: `0.4.1` (`versionCode` 5)
+- Version: `0.5.0` (`versionCode` 6)
 - Final APK: `D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-debug.apk`
-- APK size: 24,674,746 bytes (23.53 MiB)
-- APK SHA-256: `C26B612BBCD4B854F9EC5583A5691B1685A8C682D56DD8D224B3FDFE6E6B1557`
+- APK size: 24,691,130 bytes (23.55 MiB)
+- APK SHA-256: `7CDF95E9DCE3EC2A3B0A7991190D61ED4E245FAD73BCE381024B9A30A98DC09C`
 
 ## Validation
 
-- Build result: SUCCESS (`assembleDebug`)
-- Unit-test result: SUCCESS (22 tests, 0 failures, 0 errors, 0 skipped)
-- Lint result: SUCCESS (0 errors, 13 dependency/version availability warnings)
+- Build: SUCCESS (`assembleDebug`)
+- Unit tests: SUCCESS (24 tests, 0 failures, 0 errors, 0 skipped)
+- Lint: SUCCESS (0 errors, 13 dependency/version availability warnings)
 - Targeted Kotlin compilation: SUCCESS
-- Final validation log: `D:\aplikasi-kamera\development-logs\final-validation-0.4.1.log`
+- Final validation log: `D:\aplikasi-kamera\development-logs\final-validation-0.5.0.log`
 - Lint report: `D:\aplikasi-kamera\app\build\reports\lint-results-debug.html`
 
-## Features repaired
+## UI redesign result
 
-- The professional composition catalog now exposes all 11 implemented guides rather than only four visible cards.
-- Replaced the nested 360 dp-capped lazy grid with an adaptive, single-scroll layout.
-- Added compact/wide responsive columns, a catalog count, photography-oriented ordering, and a selected-card indicator.
-- Preserved preview-only rendering, guide previews, custom appearance controls, interactive guide presets, and close-after-selection behavior.
-- Existing 0.4.0 repairs remain included: preview-first portrait/landscape/tablet camera layouts, automatic MediaStore save, thumbnail/viewer, Camera2 capability inspection, separate native/crop/bound/actual resolution reporting, bounded guides, sensor level, selfie behavior, video, and capability-driven modes.
+- Reduced the permanent portrait control reserve from 188 dp to 164 dp.
+- Reduced the landscape capture/mode rail from 216 dp to 164 dp, within the requested compact landscape guidance on an 800 dp-wide phone.
+- Replaced large circular top-control surfaces with transparent 48 dp touch targets and compact 38 dp visual treatments.
+- Reduced secondary controls to 48 dp and the shutter to a consistent 78 dp stock-camera form.
+- Made the bottom control background a lighter three-stage gradient instead of a large opaque panel.
+- Added a stock-camera-style selected mode underline while keeping Photo, Video, and More on one line.
+- Preserved standard thumbnail-left, shutter-center, camera-switch-right control placement.
+- Replaced the empty developer-like More panel with a concise capability status card.
+- Retained all 11 professional composition guides and responsive two/three-column selector.
 
-## UI results
+## 48 MP and resolution repair
 
-- Portrait: source layout and composition sheet compile successfully; physical 0.4.1 screenshot still required.
-- Landscape: dedicated capture rail remains; physical left/right landscape verification still required.
-- Tablet: adaptive policy and 3-column wide composition catalog compile successfully; physical tablet verification still required.
+- Added the previously missing Camera2 `StreamConfigurationMap.getHighResolutionOutputSizes(JPEG)` query.
+- Added a separate `highResolutionJpegs` capability tier.
+- CameraX high-resolution outputs use `PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE`, maximum-quality capture, and exact resolution binding.
+- Normal JPEG, CameraX high-resolution JPEG, and API 31+ maximum-sensor-map JPEG outputs are no longer merged into one ambiguous list.
+- Maximum-sensor-map sizes that CameraX cannot select remain visible in Camera information/diagnostics but are not presented as working capture options.
+- The resolution sheet now groups High resolution, Recommended, and Standard output sizes.
+- Requested, CameraX-bound, estimated crop, and actual saved JPEG dimensions remain separate and mismatches are reported.
+- No lower-resolution image is upscaled or labelled as 48 MP.
 
-## Camera resolution results
+## Physical verification
 
-No Android device was connected for final validation. Device camera IDs, maximum JPEG output, actual captured dimensions, genuine 48 MP exposure, and genuine 48 MP capture are therefore unverified. The implementation reads both normal and API 31+ maximum-resolution stream maps and never invents 48 MP from marketing specifications. See `CAMERA_RESOLUTION_AUDIT.md`.
+No Android device was connected through ADB during this build. Therefore:
 
-## Files changed
+- Genuine 48 MP exposed by the POCO device: unverified
+- Genuine 48 MP successfully bound by CameraX: unverified
+- Genuine 48 MP saved JPEG dimensions: unverified
+- Portrait, landscape-left/right, and tablet screenshots for 0.5.0: still required
 
-Camera state/runtime, capability repository and resolvers, settings/media repositories, composition/level utilities, camera/layout/sheet/viewer/settings UI, tests, build version, documentation, audits, and saved validation logs. Existing uncommitted repair work was preserved; no reset or destructive checkout was used.
+If the POCO exposes 8000 x 6000 through `getHighResolutionOutputSizes()`, the app now offers `48 MP` and requests the exact stream. If it exposes 48 MP only through the API 31 maximum-sensor map, the app reports it as detected but does not falsely claim CameraX captured it.
 
-## Remaining limitations and physical tests
-
-- Install and inspect the 0.4.1 APK on the POCO phone and tablet.
-- Verify all 11 guide cards are reachable in portrait and landscape.
-- Verify guide interactions, preview clipping, rotation, front mirroring, and sensor level on hardware.
-- Export Camera information and verify requested, CameraX-bound, cropped, and actual JPEG dimensions.
-- Confirm whether a genuine maximum-resolution/48 MP stream is exposed and captured.
-- Validate video recording, HFR/slow-motion visibility, stabilization, screen flash, lifecycle recovery, and thermal/storage behavior on each device.
-
-## Git status recorded before publication
-
-- Starting branch: `main`, tracking `origin/main`
-- Starting commit: `7716b15`
-- Working tree contained the complete Adaptive Composition Camera repair described above; all changes were intentionally in scope for publication.
-
-## Git publication result
+## Git publication
 
 - Branch: `agent/professional-composition-guides`
-- Commit: `2c4933f` (`Repair adaptive camera UI and composition guide catalog`)
-- Remote tracking branch: `origin/agent/professional-composition-guides`
-- Draft pull request: `https://github.com/zak3123/aplikasi-kamera/pull/1`
-- Pull request target: `main`
-- Git status after publication: clean and synchronized with the remote branch
+- Pull request: `https://github.com/zak3123/aplikasi-kamera/pull/1`
+- Final publication commit is recorded after this report is committed.
 
-## Shutdown
+## Remaining limitations
 
-Exact requested command after successful publication and final status recording:
+- A dedicated Camera2 maximum-sensor-mode capture session is still required for devices that expose ultra-high resolution only through `SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION`.
+- CameraX Extensions, RAW capture, verified constrained high-speed recording, and Pro controls remain conservative or unavailable until their real pipelines are implemented and device-tested.
+
+## Shutdown command
 
 `shutdown.exe /s /f /t 180 /c "Adaptive Composition Camera repair completed. Windows will shut down automatically."`

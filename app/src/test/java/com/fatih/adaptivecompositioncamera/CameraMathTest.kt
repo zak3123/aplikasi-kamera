@@ -21,6 +21,8 @@ import com.fatih.adaptivecompositioncamera.utility.AdaptiveLayout
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
 import com.fatih.adaptivecompositioncamera.utility.FloatPoint
 import com.fatih.adaptivecompositioncamera.ui.camera.professionalGuideCatalog
+import com.fatih.adaptivecompositioncamera.ui.camera.CameraUiTokens
+import com.fatih.adaptivecompositioncamera.ui.camera.cameraUiLayoutPolicy
 import kotlin.math.cos
 import kotlin.math.sin
 import org.junit.Assert.assertEquals
@@ -223,6 +225,15 @@ class CameraMathTest {
     }
 
     @Test
+    fun stockCameraChromeStaysWithinCompactPhoneGuidance() {
+        val landscape = cameraUiLayoutPolicy(AdaptiveLayout.PhoneLandscape)
+        assertEquals(164f, landscape.captureRailWidth.value, 0f)
+        assertTrue(landscape.captureRailWidth.value <= 800f * 0.22f)
+        assertTrue(CameraUiTokens.portraitControlsHeight.value <= 640f * 0.28f)
+        assertTrue(CameraUiTokens.shutterOuterSize.value in 72f..84f)
+    }
+
+    @Test
     fun mediaNamesUseGalleryFriendlyPrefixes() {
         val repository = AndroidMediaRepository()
         val first = repository.createImageName()
@@ -246,13 +257,26 @@ class CameraMathTest {
     }
 
     @Test
-    fun maximumResolutionStreamMapIsIncludedWithoutAspectFiltering() {
+    fun maximumResolutionStreamMapIsReportedButNotOfferedAsCameraXCapture() {
         val recommended = resolution(4032, 3024, recommended = true)
         val maximum = resolution(8000, 6000).copy(maximumSensorMode = true)
         val capability = fakeCapability(jpeg = listOf(recommended), maximumJpeg = listOf(maximum))
+        assertEquals(4032, capability.selectablePhotoResolutions.first().width)
+        assertFalse(capability.selectablePhotoResolutions.any { it.maximumSensorMode })
+        assertEquals(8000, capability.maximumExposedResolution?.width)
+        assertFalse(CameraMode.MaximumResolution in CameraConfigurationResolver().availableModes(capability))
+    }
+
+    @Test
+    fun cameraXHighResolutionOutputIsSelectableAndEnablesRealMpMode() {
+        val recommended = resolution(4000, 3000, recommended = true)
+        val highResolution = resolution(8000, 6000).copy(highResolution = true)
+        val capability = fakeCapability(jpeg = listOf(recommended), highResolutionJpeg = listOf(highResolution))
         assertEquals(8000, capability.selectablePhotoResolutions.first().width)
-        assertTrue(capability.selectablePhotoResolutions.first().maximumSensorMode)
+        assertTrue(capability.selectablePhotoResolutions.first().highResolution)
+        assertEquals(48.0, capability.displayMaximumResolution?.megapixels ?: 0.0, 0.0)
         assertTrue(CameraMode.MaximumResolution in CameraConfigurationResolver().availableModes(capability))
+        assertFalse(recommended.id == highResolution.id)
     }
 
     private fun arcPoint(bounds: com.fatih.adaptivecompositioncamera.utility.FloatBounds, angleDegrees: Float): FloatPoint {
@@ -284,6 +308,7 @@ class CameraMathTest {
 
     private fun fakeCapability(
         jpeg: List<CameraResolution> = emptyList(),
+        highResolutionJpeg: List<CameraResolution> = emptyList(),
         maximumJpeg: List<CameraResolution> = emptyList(),
         video: List<CameraResolution> = listOf(resolution(1920, 1080)),
         highSpeed: List<HighSpeedVideoOption> = emptyList(),
@@ -307,6 +332,7 @@ class CameraMathTest {
         exposureTimeRange = null,
         exposureCompensationRange = null,
         jpegResolutions = jpeg,
+        highResolutionJpegs = highResolutionJpeg,
         maximumResolutionJpegs = maximumJpeg,
         rawResolutions = emptyList(),
         videoResolutions = video,

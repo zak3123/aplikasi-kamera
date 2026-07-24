@@ -12,6 +12,6 @@ Adaptive Composition Camera uses a small layered architecture:
 
 Normal capture binds Preview and ImageCapture/VideoCapture as a `UseCaseGroup` with one `ViewPort`. The measured Compose preview box is also the clipping and normalized-coordinate boundary for every composition renderer and interactive guide. Portrait and landscape use separate layout policies from `CameraUiLayout.kt`, while camera state and capture actions remain shared.
 
-The resolution model deliberately separates the Android-exposed native source, selected output crop, CameraX-bound stream, and verified saved JPEG header dimensions. API 31+ maximum-resolution stream-map entries retain their sensor-pixel-mode marker and are never removed by the selected aspect ratio.
+The resolution model deliberately separates the Android-exposed native source, CameraX high-resolution output, API 31+ maximum-sensor-map metadata, selected output crop, CameraX-bound stream, and verified saved JPEG header dimensions. High-resolution outputs use `PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE` and exact binding. Maximum-sensor-map entries remain diagnostic-only because CameraX cannot select them.
 
 Camera and photo-resolution selections are persisted per Android camera ID. The UI never assumes camera ID 0 or exposes a depth-only/non-backward-compatible camera as a photographic lens.

@@ -91,9 +91,10 @@ data class CameraResolution(
     val aspectRatioLabel: String,
     val recommended: Boolean = false,
     val maximum: Boolean = false,
+    val highResolution: Boolean = false,
     val maximumSensorMode: Boolean = false,
 ) {
-    val id: String get() = "$width:$height:$format:$maximumSensorMode"
+    val id: String get() = "$width:$height:$format:$highResolution:$maximumSensorMode"
     val megapixelLabel: String get() = if (megapixels % 1.0 == 0.0) "${megapixels.toInt()} MP" else "$megapixels MP"
 }
 
@@ -146,6 +147,7 @@ data class CameraCapability(
     val exposureTimeRange: String?,
     val exposureCompensationRange: String?,
     val jpegResolutions: List<CameraResolution>,
+    val highResolutionJpegs: List<CameraResolution> = emptyList(),
     val maximumResolutionJpegs: List<CameraResolution> = emptyList(),
     val heicResolutions: List<CameraResolution> = emptyList(),
     val rawResolutions: List<CameraResolution>,
@@ -168,12 +170,16 @@ data class CameraCapability(
     val unavailableReasons: List<String> = emptyList(),
 ) {
     val selectablePhotoResolutions: List<CameraResolution>
-        get() = (maximumResolutionJpegs + jpegResolutions)
+        get() = (highResolutionJpegs + jpegResolutions)
             .distinctBy { "${it.width}:${it.height}:${it.format}" }
             .sortedByDescending { it.width.toLong() * it.height }
 
     val displayMaximumResolution: CameraResolution?
-        get() = (maximumResolutionJpegs + jpegResolutions).maxByOrNull { it.width.toLong() * it.height }
+        get() = selectablePhotoResolutions.maxByOrNull { it.width.toLong() * it.height }
+
+    val maximumExposedResolution: CameraResolution?
+        get() = (maximumResolutionJpegs + highResolutionJpegs + jpegResolutions)
+            .maxByOrNull { it.width.toLong() * it.height }
 
     val normalMaximumResolution: CameraResolution?
         get() = jpegResolutions.maxByOrNull { it.width.toLong() * it.height }

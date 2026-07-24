@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -116,52 +117,99 @@ private fun RatioRow(
 fun ResolutionSheet(
     resolutions: List<CameraResolution>,
     selected: CameraResolution?,
+    reportedMaximum: CameraResolution?,
     onSelect: (CameraResolution) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val groups = listOf(
+        "High resolution" to resolutions.filter { it.highResolution },
+        "Recommended" to resolutions.filter { it.recommended && !it.highResolution },
+        "Standard" to resolutions.filterNot { it.highResolution || it.recommended },
+    ).filter { it.second.isNotEmpty() }
+    val unavailableMaximum = reportedMaximum?.takeIf { maximum ->
+        maximum.maximumSensorMode && resolutions.none {
+            it.width == maximum.width && it.height == maximum.height
+        }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("Photo resolution", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Normal and maximum-resolution JPEG sizes exposed to third-party Android apps are listed separately.",
+                "Only outputs Android exposes and CameraX can bind are selectable.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
             )
-            LazyColumn {
-                items(resolutions, key = { it.id }) { resolution ->
+            if (unavailableMaximum != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                ) {
                     Row(
-                        Modifier.fillMaxWidth().clickable {
-                            onSelect(resolution)
-                            onDismiss()
-                        }.padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.Top,
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(resolution.megapixelLabel, style = MaterialTheme.typography.titleMedium)
-                                when {
-                                    resolution.maximumSensorMode -> Badge("Maximum sensor mode")
-                                    resolution.recommended -> Badge("Recommended")
-                                    resolution.maximum -> Badge("Maximum")
+                        Icon(Icons.Rounded.Info, contentDescription = null)
+                        Column {
+                            Text(
+                                "${unavailableMaximum.megapixelLabel} sensor mode detected",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                "${unavailableMaximum.width} x ${unavailableMaximum.height} is reported only in Android's maximum-sensor map. " +
+                                    "It is not shown as selectable until a valid capture session can use it.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+            }
+            LazyColumn {
+                groups.forEach { (title, options) ->
+                    item(key = "section:$title") {
+                        Text(
+                            title.uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 3.dp),
+                        )
+                    }
+                    items(options, key = { it.id }) { resolution ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                onSelect(resolution)
+                                onDismiss()
+                            }.padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(resolution.megapixelLabel, style = MaterialTheme.typography.titleMedium)
+                                    when {
+                                        resolution.highResolution -> Badge("High resolution")
+                                        resolution.recommended -> Badge("Recommended")
+                                        resolution.maximum -> Badge("Maximum")
+                                    }
+                                }
+                                Text(
+                                    "${resolution.width} x ${resolution.height}  |  ${resolution.aspectRatioLabel}  |  ${resolution.format}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                if (resolution.highResolution) {
+                                    Text(
+                                        "Larger file - slower capture - exact output is verified after saving",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                    )
                                 }
                             }
-                            Text(
-                                "${resolution.width} x ${resolution.height}  |  ${resolution.aspectRatioLabel}  |  ${resolution.format}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            if (resolution.maximumSensorMode) {
-                                Text(
-                                    "Large file - slower capture - incompatible features are disabled",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.tertiary,
-                                )
-                            }
+                            if (selected?.id == resolution.id) Icon(Icons.Rounded.Check, contentDescription = "Selected")
                         }
-                        if (selected?.id == resolution.id) Icon(Icons.Rounded.Check, contentDescription = "Selected")
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                 }
             }
         }
@@ -485,7 +533,27 @@ fun MoreModesSheet(
             Text("More modes", style = MaterialTheme.typography.headlineSmall)
             val additional = modes.filterNot { it in listOf(CameraMode.Portrait, CameraMode.Photo, CameraMode.Video) }
             if (additional.isEmpty()) {
-                Text("No additional modes are exposed for this camera.", Modifier.padding(vertical = 24.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                ) {
+                    Row(
+                        Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Icon(Icons.Rounded.Info, contentDescription = null)
+                        Column {
+                            Text("No extra modes for this lens", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Photo and Video remain available. Advanced modes appear only when Android exposes a compatible capture configuration.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             } else {
                 additional.forEach { mode ->
                     Row(

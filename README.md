@@ -16,7 +16,7 @@ Native Android camera app using Kotlin, Jetpack Compose, Material 3, CameraX, Ca
 - Responsive phone, tablet, rotation, and resizable-window behavior.
 - Separate portrait and landscape camera chrome, with a compact portrait gradient and a safe-edge landscape capture rail.
 - Native capture resolution, preview/output crop, bound CameraX resolution, and actual saved JPEG dimensions are tracked separately.
-- Normal and API 31+ maximum-resolution JPEG maps are merged without aspect-ratio filtering; maximum sensor-pixel mode is requested only for an exposed maximum-resolution output.
+- Normal JPEG, CameraX-selectable high-resolution JPEG, and API 31+ maximum-sensor-map JPEG outputs are detected separately. Only a stream CameraX can bind is shown as a capture option.
 - No ads, no analytics, no network permission, no mandatory account, and no cloud upload.
 
 ## Architecture
@@ -74,7 +74,7 @@ POCO phone/tablet testing is supported as a target, but there is no POCO, Xiaomi
 
 ## Manual Test Checklist
 
-Photo: rear photo, front selfie, mirrored/unmirrored preference, screen flash, timer flow, high resolution fallback, rotation, overlays, automatic gallery indexing, share, and delete.
+Photo: rear photo, front selfie, mirrored/unmirrored preference, screen flash, timer flow, CameraX high-resolution output, exact-bound fallback, rotation, overlays, automatic gallery indexing, share, and delete.
 
 Video: rear video, front video, audio permission, mute setting, zoom, stabilization availability, rotation, interruption, low storage, HFR, slow motion, time lapse.
 

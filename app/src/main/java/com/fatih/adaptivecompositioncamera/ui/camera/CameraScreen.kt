@@ -688,7 +688,6 @@ fun CameraScreen(
                 },
                 onComposition = { showCompositionSheet = true },
                 onSettings = onOpenSettings,
-                onMore = { showMoreSheet = true },
             )
         }
 
@@ -768,9 +767,10 @@ fun CameraScreen(
         ResolutionSheet(
             resolutions = resolutions,
             selected = selectedResolution,
+            reportedMaximum = activeCapability?.maximumExposedResolution,
             onSelect = {
                 selectedResolution = it
-                if (it.maximumSensorMode) onModeChange(CameraMode.MaximumResolution)
+                if (it.highResolution || it.maximumSensorMode) onModeChange(CameraMode.MaximumResolution)
                 else if (settings.mode == CameraMode.MaximumResolution) onModeChange(CameraMode.Photo)
                 activeCapability?.cameraId?.let { cameraId -> onResolutionChange(cameraId, it.id) }
             },
@@ -830,7 +830,6 @@ private fun CameraTopBar(
     onResolution: () -> Unit,
     onComposition: () -> Unit,
     onSettings: () -> Unit,
-    onMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -855,7 +854,6 @@ private fun CameraTopBar(
         TopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution)
         TopControl(Icons.Rounded.GridOn, "Composition guides", null, onComposition)
         TopControl(Icons.Rounded.Settings, "Settings", null, onSettings)
-        TopControl(Icons.Rounded.MoreVert, "More camera controls", null, onMore)
     }
 }
 
@@ -866,15 +864,30 @@ private fun TopControl(
     label: String?,
     onClick: () -> Unit,
 ) {
-    Column(Modifier.width(54.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(
-            onClick = onClick,
-            shape = CircleShape,
-            color = Color.Black.copy(alpha = 0.42f),
-            modifier = Modifier.size(CameraUiTokens.topIconSize),
+    Column(Modifier.width(50.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(CameraUiTokens.minimumTouchTarget)
+                .clip(CircleShape)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = description, tint = Color.White)
+            Box(
+                modifier = Modifier
+                    .size(CameraUiTokens.topVisualSize)
+                    .clip(CircleShape)
+                    .background(
+                        if (label != null) Color.Black.copy(alpha = 0.28f)
+                        else Color.Transparent,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = description,
+                    tint = Color.White,
+                    modifier = Modifier.size(CameraUiTokens.topIconSize),
+                )
             }
         }
         if (label != null) {
@@ -886,7 +899,7 @@ private fun TopControl(
                 overflow = TextOverflow.Clip,
                 softWrap = false,
                 modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.52f))
-                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                    .padding(horizontal = 5.dp, vertical = 1.dp),
             )
         }
     }
@@ -921,8 +934,8 @@ private fun CameraBottomControls(
     if (landscape) {
         Row(
             modifier.background(
-                Brush.horizontalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))),
-            ).padding(horizontal = 6.dp, vertical = 8.dp),
+                Brush.horizontalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.66f))),
+            ).padding(horizontal = 4.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(
@@ -958,8 +971,10 @@ private fun CameraBottomControls(
     } else {
         Column(
             modifier.background(
-                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))),
-            ).padding(horizontal = 12.dp, vertical = 4.dp),
+                Brush.verticalGradient(
+                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.34f), Color.Black.copy(alpha = 0.78f)),
+                ),
+            ).padding(horizontal = 12.dp, vertical = 2.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (availableCameras.size > 1) {
@@ -971,7 +986,11 @@ private fun CameraBottomControls(
                 Slider(value = zoom, onValueChange = onZoom, valueRange = minZoom..maxZoom, modifier = Modifier.fillMaxWidth().height(30.dp))
             }
             ModeCarousel(activeMode, availableModes, maxResolution, onMode, onMore)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 LatestMediaButton(latestThumbnail, hasLatestMedia, onLatestMedia)
                 ShutterButton(videoMode = activeMode == CameraMode.Video, recording = isRecording, onClick = onShutter)
                 CameraSwitchButton(canSwitch, onSwitch)
@@ -998,7 +1017,7 @@ private fun LandscapeModeSelector(
             maxLines = 1,
             softWrap = false,
             modifier = Modifier.heightIn(min = CameraUiTokens.minimumTouchTarget).clickable { onMode(mode) }
-                .padding(horizontal = 8.dp, vertical = 12.dp),
+                .padding(horizontal = 4.dp, vertical = 12.dp),
         )
     }
     Text(
@@ -1007,7 +1026,7 @@ private fun LandscapeModeSelector(
         maxLines = 1,
         softWrap = false,
         modifier = Modifier.heightIn(min = CameraUiTokens.minimumTouchTarget)
-            .clickable(onClick = onMore).padding(horizontal = 8.dp, vertical = 12.dp),
+            .clickable(onClick = onMore).padding(horizontal = 4.dp, vertical = 12.dp),
     )
 }
 
@@ -1023,9 +1042,9 @@ private fun CompactLensSelector(
         onClick = { onCamera(cameras[(activeIndex + 1) % cameras.size]) },
         shape = CircleShape,
         color = Color.White,
-        modifier = Modifier.height(CameraUiTokens.minimumTouchTarget),
+        modifier = Modifier.size(CameraUiTokens.minimumTouchTarget),
     ) {
-        Box(Modifier.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+        Box(contentAlignment = Alignment.Center) {
             Text(active.lensSelectorLabel(cameras), color = Color.Black, maxLines = 1, softWrap = false)
         }
     }
@@ -1100,9 +1119,9 @@ private fun LensSelector(
                 onClick = { onCamera(camera) },
                 shape = CircleShape,
                 color = if (selected) Color.White else Color.Black.copy(alpha = 0.42f),
-                modifier = Modifier.padding(horizontal = 4.dp).height(48.dp),
+                modifier = Modifier.padding(horizontal = 3.dp).height(CameraUiTokens.minimumTouchTarget),
             ) {
-                Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
                     Text(
                         camera.lensSelectorLabel(cameras),
                         color = if (selected) Color.Black else Color.White,
@@ -1126,29 +1145,54 @@ private fun ModeCarousel(
 ) {
     val mainModes = listOf(CameraMode.Portrait, CameraMode.Photo, CameraMode.Video).filter { it in availableModes }
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         mainModes.forEach { mode ->
             val selected = mode == activeMode
-            Text(
+            CameraModeLabel(
                 text = mode.label(maxResolution),
-                color = if (selected) Color(0xFFFFD166) else Color.White.copy(alpha = 0.76f),
-                style = if (selected) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier.heightIn(min = CameraUiTokens.minimumTouchTarget)
-                    .clickable { onMode(mode) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                selected = selected,
+                onClick = { onMode(mode) },
             )
         }
+        CameraModeLabel(
+            text = "More",
+            selected = activeMode !in mainModes,
+            onClick = onMore,
+        )
+    }
+}
+
+@Composable
+private fun CameraModeLabel(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .heightIn(min = CameraUiTokens.minimumTouchTarget)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         Text(
-            "More",
-            color = if (activeMode !in mainModes) Color(0xFFFFD166) else Color.White.copy(alpha = 0.76f),
+            text = text,
+            color = if (selected) Color.White else Color.White.copy(alpha = 0.68f),
+            style = if (selected) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             softWrap = false,
-            modifier = Modifier.heightIn(min = CameraUiTokens.minimumTouchTarget)
-                .clickable(onClick = onMore).padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        Spacer(Modifier.height(3.dp))
+        Box(
+            Modifier
+                .width(18.dp)
+                .height(2.dp)
+                .clip(CircleShape)
+                .background(if (selected) Color(0xFFFFCC48) else Color.Transparent),
         )
     }
 }

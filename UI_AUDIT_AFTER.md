@@ -1,5 +1,16 @@
 # UI Audit After
 
+## 0.5.0 stock-camera chrome pass
+
+- Transparent compact top controls replaced the visually heavy quick-control circles.
+- Portrait controls reserve 164 dp instead of 188 dp.
+- Landscape mode/capture rail is 164 dp instead of 216 dp.
+- Shutter remains a standard 78 dp ring with photo/video/recording states.
+- Latest media and camera switch use consistent 48 dp controls.
+- Mode selection uses a restrained underline and never wraps Photo into two lines.
+- Resolution selection is grouped into High resolution, Recommended, and Standard sections.
+- The More sheet uses a native capability explanation rather than a developer-test message.
+
 ## Composition selector repair
 
 - The height-limited nested lazy grid was removed.

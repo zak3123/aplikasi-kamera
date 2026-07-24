@@ -69,6 +69,7 @@ class AndroidCameraCapabilityRepository(
         val capabilities = c.safe(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)?.toList().orEmpty().toSet()
         val streamMap = c.safe(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
         val jpegSizes = streamMap?.getOutputSizes(ImageFormat.JPEG).orEmpty().toList()
+        val highResolutionJpegSizes = streamMap.highResolutionOutputSizes(ImageFormat.JPEG)
         val maximumStreamMap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             c.safe(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION)
         } else null
@@ -105,8 +106,11 @@ class AndroidCameraCapabilityRepository(
             exposureTimeRange = c.safe(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)?.toText(),
             exposureCompensationRange = c.safe(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)?.toText(),
             jpegResolutions = CameraMath.sortResolutions(jpegSizes, "JPEG"),
+            highResolutionJpegs = CameraMath.sortResolutions(highResolutionJpegSizes, "JPEG").map {
+                it.copy(highResolution = true, recommended = false)
+            },
             maximumResolutionJpegs = CameraMath.sortResolutions(maximumJpegSizes, "JPEG").map {
-                it.copy(maximumSensorMode = true)
+                it.copy(maximumSensorMode = true, recommended = false)
             },
             heicResolutions = CameraMath.sortResolutions(heicSizes, "HEIC"),
             rawResolutions = CameraMath.sortResolutions(rawSizes, "DNG"),
@@ -138,17 +142,43 @@ class AndroidCameraCapabilityRepository(
                     add("This camera is not marked as backward-compatible for normal third-party camera capture.")
                 }
                 val sensorPixels = c.safe(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
-                val maximumApplicationJpeg = (maximumJpegSizes + jpegSizes)
+                val maximumApplicationJpeg = (maximumJpegSizes + highResolutionJpegSizes + jpegSizes)
                     .maxByOrNull { it.width.toLong() * it.height }
                 if (sensorPixels != null && maximumApplicationJpeg != null) {
                     val sensorMp = CameraMath.megapixels(sensorPixels.width, sensorPixels.height)
                     val outputMp = CameraMath.megapixels(maximumApplicationJpeg.width, maximumApplicationJpeg.height)
-                    if (sensorMp > outputMp + 1.0 && maximumJpegSizes.isEmpty()) {
+                    if (
+                        sensorMp > outputMp + 1.0 &&
+                        maximumJpegSizes.isEmpty() &&
+                        highResolutionJpegSizes.isEmpty()
+                    ) {
                         add("This device may use a higher-resolution image sensor, but Android exposes a maximum application capture output of ${maximumApplicationJpeg.width} x ${maximumApplicationJpeg.height}, approximately $outputMp MP.")
+                    }
+                }
+                if (maximumJpegSizes.isNotEmpty() && highResolutionJpegSizes.isEmpty()) {
+                    val maximum = maximumJpegSizes.maxByOrNull { it.width.toLong() * it.height }
+                    if (maximum != null) {
+                        add(
+                            "Android reports a maximum-sensor-map output of ${maximum.width} x ${maximum.height}, " +
+                                "but CameraX cannot select maximum-sensor-map sizes. It is reported for diagnostics and is not presented as a working capture option.",
+                        )
                     }
                 }
             },
         )
+    }
+
+    private fun android.hardware.camera2.params.StreamConfigurationMap?.highResolutionOutputSizes(
+        format: Int,
+    ): List<Size> {
+        if (this == null) return emptyList()
+        return try {
+            getHighResolutionOutputSizes(format).orEmpty().toList()
+        } catch (_: IllegalArgumentException) {
+            emptyList()
+        } catch (_: RuntimeException) {
+            emptyList()
+        }
     }
 
     private fun stabilization(c: CameraCharacteristics): StabilizationSupport {

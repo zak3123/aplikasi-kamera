@@ -7,15 +7,16 @@ import com.fatih.adaptivecompositioncamera.utility.AdaptiveLayout
 /** Shared camera chrome dimensions. Preview geometry is calculated separately from these tokens. */
 object CameraUiTokens {
     val minimumTouchTarget: Dp = 48.dp
-    val topIconSize: Dp = 48.dp
-    val secondaryControlSize: Dp = 52.dp
-    val shutterOuterSize: Dp = 82.dp
+    val topIconSize: Dp = 22.dp
+    val topVisualSize: Dp = 38.dp
+    val secondaryControlSize: Dp = 48.dp
+    val shutterOuterSize: Dp = 78.dp
     val shutterStroke: Dp = 3.dp
-    val controlGap: Dp = 8.dp
-    val compactPadding: Dp = 8.dp
-    val portraitControlsHeight: Dp = 188.dp
-    val landscapeCaptureRailWidth: Dp = 122.dp
-    val landscapeModeRailWidth: Dp = 94.dp
+    val controlGap: Dp = 6.dp
+    val compactPadding: Dp = 6.dp
+    val portraitControlsHeight: Dp = 164.dp
+    val landscapeCaptureRailWidth: Dp = 98.dp
+    val landscapeModeRailWidth: Dp = 66.dp
     val maximumPortraitControlsWidth: Dp = 620.dp
     val maximumTabletControlsWidth: Dp = 720.dp
 }

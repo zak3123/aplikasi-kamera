@@ -5,7 +5,6 @@ import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
-import android.hardware.camera2.CaptureRequest
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -24,7 +23,6 @@ import androidx.camera.core.ViewPort
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.camera2.interop.Camera2CameraInfo
-import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
@@ -110,7 +108,7 @@ class CameraRuntime(
                 .setTargetRotation(targetRotation)
                 .build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
             previewUseCase = preview
-            val maximumSensorMode = mode == CameraMode.MaximumResolution && resolution?.maximumSensorMode == true
+            val highResolutionMode = mode == CameraMode.MaximumResolution && resolution?.highResolution == true
             val captureBuilder = ImageCapture.Builder()
                 .setTargetRotation(targetRotation)
                 .setCaptureMode(
@@ -119,6 +117,13 @@ class CameraRuntime(
             )
             if (resolution != null) {
                 val resolutionSelector = ResolutionSelector.Builder()
+                    .setAllowedResolutionMode(
+                        if (resolution.highResolution) {
+                            ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE
+                        } else {
+                            ResolutionSelector.PREFER_CAPTURE_RATE_OVER_HIGHER_RESOLUTION
+                        },
+                    )
                     .setResolutionStrategy(
                         ResolutionStrategy(
                             Size(resolution.width, resolution.height),
@@ -127,12 +132,6 @@ class CameraRuntime(
                         ),
                     ).build()
                 captureBuilder.setResolutionSelector(resolutionSelector)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && maximumSensorMode) {
-                Camera2Interop.Extender(captureBuilder).setCaptureRequestOption(
-                    CaptureRequest.SENSOR_PIXEL_MODE,
-                    CaptureRequest.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION,
-                )
             }
             val requestedCapture = captureBuilder.build()
             val recorder = Recorder.Builder()
@@ -160,7 +159,14 @@ class CameraRuntime(
                     imageCapture = requestedCapture
                     videoCapture = null
                 }
-                completeBind(targetRotation, maximumSensorMode, onBound)
+                completeBind(
+                    targetRotation = targetRotation,
+                    sensorPixelMode = when {
+                        highResolutionMode -> "High Resolution"
+                        else -> "Normal"
+                    },
+                    onBound = onBound,
+                )
             } catch (requestedFailure: RuntimeException) {
                 bindSafePhotoFallback(
                     cameraProvider = cameraProvider,
@@ -204,7 +210,7 @@ class CameraRuntime(
             )
             imageCapture = safeCapture
             videoCapture = null
-            completeBind(targetRotation, false, onBound)
+            completeBind(targetRotation, "Normal", onBound)
             onError("The requested camera configuration was not accepted. A safe photo configuration was restored. ${requestedFailure.message.orEmpty()}")
         } catch (fallbackFailure: RuntimeException) {
             fail(fallbackFailure.message ?: "Unable to bind a usable camera configuration.", onError)
@@ -237,7 +243,11 @@ class CameraRuntime(
         return cameraProvider.bindToLifecycle(lifecycleOwner, selector, group)
     }
 
-    private fun completeBind(targetRotation: Int, maximumSensorMode: Boolean, onBound: (RuntimeCameraInfo) -> Unit) {
+    private fun completeBind(
+        targetRotation: Int,
+        sensorPixelMode: String,
+        onBound: (RuntimeCameraInfo) -> Unit,
+    ) {
         val info = camera?.cameraInfo
         val zoomState = info?.zoomState?.value
         val exposure = info?.exposureState?.exposureCompensationRange
@@ -259,7 +269,7 @@ class CameraRuntime(
                 previewWidth = previewResolution?.width ?: 0,
                 previewHeight = previewResolution?.height ?: 0,
                 targetRotation = targetRotation,
-                sensorPixelMode = if (maximumSensorMode) "Maximum Resolution" else "Normal",
+                sensorPixelMode = sensorPixelMode,
             ),
         )
     }

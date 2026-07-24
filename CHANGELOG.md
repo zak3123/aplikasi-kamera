@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+- Reworked the camera chrome again with smaller transparent quick controls, a thinner portrait gradient, a 164 dp landscape rail, and a stock-camera-style selected mode indicator.
+- Added Camera2 `getHighResolutionOutputSizes(JPEG)` discovery, which was the missing Android path commonly used for slower high-megapixel JPEG outputs.
+- Configured CameraX `ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE` only for a genuinely reported high-resolution output and requires an exact binding for Maximum Resolution mode.
+- Separated normal JPEG, CameraX-selectable high-resolution JPEG, and API 31+ maximum-sensor-map JPEG outputs.
+- Prevented maximum-sensor-map sizes that CameraX cannot select from appearing as working capture choices; they remain visible in Camera information and the resolution sheet as detected diagnostics.
+- Grouped the resolution sheet into High resolution, Recommended, and Standard sections and retained actual saved-file verification.
+- Replaced the empty developer-like More panel with a concise capability explanation for the active lens.
+
 ## 0.4.1
 
 - Fixed the composition sheet so all 11 implemented photographic guides are reachable instead of only the first four.
