@@ -73,7 +73,13 @@ class AndroidCameraCapabilityRepository(
         val maximumStreamMap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             c.safe(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION)
         } else null
-        val maximumJpegSizes = maximumStreamMap?.getOutputSizes(ImageFormat.JPEG).orEmpty().toList()
+        val ultraHighResolution = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR)
+        val maximumJpegSizes = if (ultraHighResolution) {
+            maximumStreamMap?.getOutputSizes(ImageFormat.JPEG).orEmpty().toList()
+        } else {
+            emptyList()
+        }
         val heicSizes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             streamMap?.getOutputSizes(ImageFormat.HEIC).orEmpty().toList()
         } else emptyList()
@@ -130,12 +136,8 @@ class AndroidCameraCapabilityRepository(
             zoomRatioRange = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 c.safe(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)?.toText()
             } else null,
-            supportsUltraHighResolutionSensor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR),
-            sensorPixelModes = if (
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR)
-            ) listOf("Normal", "Maximum Resolution") else listOf("Normal"),
+            supportsUltraHighResolutionSensor = ultraHighResolution,
+            sensorPixelModes = if (ultraHighResolution) listOf("Normal", "Maximum Resolution") else listOf("Normal"),
             unavailableReasons = buildList {
                 if (maxJpeg == null) add("No JPEG output sizes were exposed by Android for this camera.")
                 if (!capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE)) {
@@ -155,12 +157,12 @@ class AndroidCameraCapabilityRepository(
                         add("This device may use a higher-resolution image sensor, but Android exposes a maximum application capture output of ${maximumApplicationJpeg.width} x ${maximumApplicationJpeg.height}, approximately $outputMp MP.")
                     }
                 }
-                if (maximumJpegSizes.isNotEmpty() && highResolutionJpegSizes.isEmpty()) {
+                if (maximumJpegSizes.isNotEmpty()) {
                     val maximum = maximumJpegSizes.maxByOrNull { it.width.toLong() * it.height }
                     if (maximum != null) {
                         add(
                             "Android reports a maximum-sensor-map output of ${maximum.width} x ${maximum.height}, " +
-                                "but CameraX cannot select maximum-sensor-map sizes. It is reported for diagnostics and is not presented as a working capture option.",
+                                "captured through a dedicated Camera2 maximum-resolution still session. Capture is slower and the preview restarts afterward.",
                         )
                     }
                 }

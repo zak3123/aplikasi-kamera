@@ -71,7 +71,7 @@ data class GuideStyle(
     val spiralClockwise: Boolean = true,
     val spiralHorizontalFlip: Boolean = false,
     val spiralVerticalFlip: Boolean = false,
-    val vanishingLineCount: Int = 7,
+    val vanishingLineCount: Int = 5,
     val frameCornerDp: Float = 12f,
     val frameDimOutside: Boolean = true,
     val textureGridSize: Int = 6,
@@ -170,7 +170,11 @@ data class CameraCapability(
     val unavailableReasons: List<String> = emptyList(),
 ) {
     val selectablePhotoResolutions: List<CameraResolution>
-        get() = (highResolutionJpegs + jpegResolutions)
+        get() = (
+            maximumResolutionJpegs.takeUnless { lensFacing == LensFacing.Front }.orEmpty() +
+                highResolutionJpegs +
+                jpegResolutions
+            )
             .distinctBy { "${it.width}:${it.height}:${it.format}" }
             .sortedByDescending { it.width.toLong() * it.height }
 

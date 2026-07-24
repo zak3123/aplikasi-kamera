@@ -270,6 +270,20 @@ object CameraMath {
         return Math.toDegrees(atan2(gravityX.toDouble(), gravityY.toDouble())).toFloat()
     }
 
+    fun jpegOrientationDegrees(
+        sensorOrientationDegrees: Int,
+        deviceRotationDegrees: Int,
+        frontFacing: Boolean,
+    ): Int {
+        val sensor = ((sensorOrientationDegrees % 360) + 360) % 360
+        val device = ((deviceRotationDegrees % 360) + 360) % 360
+        return if (frontFacing) {
+            (sensor + device) % 360
+        } else {
+            (sensor - device + 360) % 360
+        }
+    }
+
     fun isFrameRateValid(candidateFps: Int, ranges: List<IntRange>): Boolean {
         return ranges.any { candidateFps in it }
     }

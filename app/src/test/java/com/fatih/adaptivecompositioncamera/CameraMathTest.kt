@@ -166,6 +166,14 @@ class CameraMathTest {
     }
 
     @Test
+    fun jpegOrientationAccountsForFacingAndDisplayRotation() {
+        assertEquals(90, CameraMath.jpegOrientationDegrees(90, 0, frontFacing = false))
+        assertEquals(0, CameraMath.jpegOrientationDegrees(90, 90, frontFacing = false))
+        assertEquals(180, CameraMath.jpegOrientationDegrees(90, 90, frontFacing = true))
+        assertEquals(0, CameraMath.jpegOrientationDegrees(270, 90, frontFacing = true))
+    }
+
+    @Test
     fun horizonRollUsesGravityRatherThanGeometricCenter() {
         assertEquals(0f, CameraMath.horizonRollDegrees(0f, 9.8f), 0.01f)
         assertEquals(90f, CameraMath.horizonRollDegrees(9.8f, 0f), 0.01f)
@@ -227,9 +235,9 @@ class CameraMathTest {
     @Test
     fun stockCameraChromeStaysWithinCompactPhoneGuidance() {
         val landscape = cameraUiLayoutPolicy(AdaptiveLayout.PhoneLandscape)
-        assertEquals(164f, landscape.captureRailWidth.value, 0f)
+        assertEquals(140f, landscape.captureRailWidth.value, 0f)
         assertTrue(landscape.captureRailWidth.value <= 800f * 0.22f)
-        assertTrue(CameraUiTokens.portraitControlsHeight.value <= 640f * 0.28f)
+        assertTrue(CameraUiTokens.portraitControlsHeight.value <= 200f)
         assertTrue(CameraUiTokens.shutterOuterSize.value in 72f..84f)
     }
 
@@ -257,14 +265,24 @@ class CameraMathTest {
     }
 
     @Test
-    fun maximumResolutionStreamMapIsReportedButNotOfferedAsCameraXCapture() {
+    fun maximumResolutionStreamMapIsSelectableForDedicatedCamera2Capture() {
         val recommended = resolution(4032, 3024, recommended = true)
         val maximum = resolution(8000, 6000).copy(maximumSensorMode = true)
         val capability = fakeCapability(jpeg = listOf(recommended), maximumJpeg = listOf(maximum))
-        assertEquals(4032, capability.selectablePhotoResolutions.first().width)
-        assertFalse(capability.selectablePhotoResolutions.any { it.maximumSensorMode })
+        assertEquals(8000, capability.selectablePhotoResolutions.first().width)
+        assertTrue(capability.selectablePhotoResolutions.first().maximumSensorMode)
         assertEquals(8000, capability.maximumExposedResolution?.width)
-        assertFalse(CameraMode.MaximumResolution in CameraConfigurationResolver().availableModes(capability))
+        assertTrue(CameraMode.MaximumResolution in CameraConfigurationResolver().availableModes(capability))
+    }
+
+    @Test
+    fun maximumSensorSessionIsNotOfferedForMirroredFrontCapture() {
+        val recommended = resolution(4000, 3000, recommended = true)
+        val maximum = resolution(8000, 6000).copy(maximumSensorMode = true)
+        val capability = fakeCapability(jpeg = listOf(recommended), maximumJpeg = listOf(maximum))
+            .copy(lensFacing = LensFacing.Front)
+        assertFalse(capability.selectablePhotoResolutions.any { it.maximumSensorMode })
+        assertEquals(4000, capability.displayMaximumResolution?.width)
     }
 
     @Test

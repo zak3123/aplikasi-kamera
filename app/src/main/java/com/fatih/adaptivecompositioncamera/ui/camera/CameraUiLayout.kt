@@ -14,9 +14,9 @@ object CameraUiTokens {
     val shutterStroke: Dp = 3.dp
     val controlGap: Dp = 6.dp
     val compactPadding: Dp = 6.dp
-    val portraitControlsHeight: Dp = 164.dp
-    val landscapeCaptureRailWidth: Dp = 98.dp
-    val landscapeModeRailWidth: Dp = 66.dp
+    val portraitControlsHeight: Dp = 188.dp
+    val landscapeCaptureRailWidth: Dp = 86.dp
+    val landscapeModeRailWidth: Dp = 54.dp
     val maximumPortraitControlsWidth: Dp = 620.dp
     val maximumTabletControlsWidth: Dp = 720.dp
 }

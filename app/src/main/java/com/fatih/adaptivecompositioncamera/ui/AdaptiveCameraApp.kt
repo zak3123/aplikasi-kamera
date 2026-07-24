@@ -31,7 +31,7 @@ fun AdaptiveCameraApp(
     requestAudioPermission: () -> Unit,
     requestLegacyStoragePermission: () -> Unit,
     volumeShutterEvent: Int,
-    onCameraScreenActive: (Boolean) -> Unit,
+    onCameraScreenState: (active: Boolean, volumeShutterEnabled: Boolean) -> Unit,
     viewModel: AdaptiveCameraViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -43,7 +43,7 @@ fun AdaptiveCameraApp(
     var viewerItem by remember { mutableStateOf<MediaItem?>(null) }
 
     LaunchedEffect(screen, settings.volumeShutter) {
-        onCameraScreenActive(screen == AppScreen.Camera && settings.volumeShutter)
+        onCameraScreenState(screen == AppScreen.Camera, settings.volumeShutter)
     }
 
     LaunchedEffect(message) {

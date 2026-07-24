@@ -14,16 +14,18 @@ Native Android camera app using Kotlin, Jetpack Compose, Material 3, CameraX, Ca
 - Settings persisted with DataStore.
 - JSON capability export/copy/share.
 - Responsive phone, tablet, rotation, and resizable-window behavior.
-- Separate portrait and landscape camera chrome, with a compact portrait gradient and a safe-edge landscape capture rail.
+- Full-screen preview under compact translucent controls; the selected output frame and composition overlays remain aligned inside the unobstructed capture area.
+- Separate portrait and landscape camera chrome, with a compact portrait gradient and a narrow safe-edge landscape capture rail.
 - Native capture resolution, preview/output crop, bound CameraX resolution, and actual saved JPEG dimensions are tracked separately.
-- Normal JPEG, CameraX-selectable high-resolution JPEG, and API 31+ maximum-sensor-map JPEG outputs are detected separately. Only a stream CameraX can bind is shown as a capture option.
+- Normal JPEG, CameraX-selectable high-resolution JPEG, and API 31+ maximum-sensor-map JPEG outputs are detected separately.
+- A validated ultra-high-resolution maximum-sensor JPEG uses a dedicated one-shot Camera2 session with `SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION`, automatic MediaStore saving, and CameraX preview restoration.
 - No ads, no analytics, no network permission, no mandatory account, and no cloud upload.
 
 ## Architecture
 
 The app is intentionally split so CameraX session control, Camera2 discovery, settings, media naming, composition overlays, and UI do not live in one Activity.
 
-- `camera/`: lifecycle-aware CameraX preview, image capture, video recording, torch, zoom.
+- `camera/`: lifecycle-aware CameraX preview/ordinary capture plus an isolated Camera2 maximum-resolution still pipeline, video recording, torch, and zoom.
 - `capability/`: safe `CameraCharacteristics` scanning and resolvers.
 - `composition/`: Compose canvas overlays.
 - `domain/model/`: serializable models and testable interfaces.
@@ -60,6 +62,14 @@ The app reports what Android exposes to third-party apps. A phone advertised as 
 
 OEM stock camera apps may use private manufacturer APIs, privileged packages, or tuned pipelines that are not available through CameraX/Camera2. Unsupported features are hidden, disabled, or explained rather than faked.
 
+## Engineering References
+
+- [Android camera-samples](https://github.com/android/camera-samples) for lifecycle-safe CameraX/Camera2 patterns.
+- [GrapheneOS Camera](https://github.com/GrapheneOS/Camera) for a proven open-source Android camera interaction hierarchy and full-preview control placement.
+- [Android maximum-resolution stream documentation](https://developer.android.com/reference/android/hardware/camera2/params/OutputConfiguration#addSensorPixelModeUsed(int)) for maximum-sensor output configuration.
+
+No external camera project was copied into this repository. The references were used to validate architecture and interaction patterns while retaining this app's own Compose UI and composition-guide system.
+
 ## High-Speed Video
 
 High-frame-rate and slow-motion options are shown only from valid Android high-speed stream configurations. Some devices support slow motion in the stock app but do not expose a third-party high-speed API path.
@@ -74,7 +84,7 @@ POCO phone/tablet testing is supported as a target, but there is no POCO, Xiaomi
 
 ## Manual Test Checklist
 
-Photo: rear photo, front selfie, mirrored/unmirrored preference, screen flash, timer flow, CameraX high-resolution output, exact-bound fallback, rotation, overlays, automatic gallery indexing, share, and delete.
+Photo: rear photo, front selfie, mirrored/unmirrored preference, screen flash, timer flow, CameraX high-resolution output, Camera2 maximum-sensor output, exact-bound fallback, rotation, overlays, automatic gallery indexing, share, and delete.
 
 Video: rear video, front video, audio permission, mute setting, zoom, stabilization availability, rotation, interruption, low storage, HFR, slow motion, time lapse.
 

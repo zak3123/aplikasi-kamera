@@ -77,9 +77,9 @@ class MainActivity : ComponentActivity() {
                     requestAudioPermission = { audioPermission.launch(Manifest.permission.RECORD_AUDIO) },
                     requestLegacyStoragePermission = { legacyStoragePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE) },
                     volumeShutterEvent = volumeShutterEvent,
-                    onCameraScreenActive = {
-                        cameraScreenActive = it
-                        updateSystemBars(it)
+                    onCameraScreenState = { active, volumeShutterEnabled ->
+                        cameraScreenActive = active && volumeShutterEnabled
+                        updateSystemBars(active)
                     },
                 )
             }

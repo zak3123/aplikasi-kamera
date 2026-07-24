@@ -9,16 +9,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -122,9 +122,10 @@ fun ResolutionSheet(
     onDismiss: () -> Unit,
 ) {
     val groups = listOf(
-        "High resolution" to resolutions.filter { it.highResolution },
-        "Recommended" to resolutions.filter { it.recommended && !it.highResolution },
-        "Standard" to resolutions.filterNot { it.highResolution || it.recommended },
+        "Maximum sensor" to resolutions.filter { it.maximumSensorMode },
+        "High resolution" to resolutions.filter { it.highResolution && !it.maximumSensorMode },
+        "Recommended" to resolutions.filter { it.recommended && !it.highResolution && !it.maximumSensorMode },
+        "Standard" to resolutions.filterNot { it.highResolution || it.recommended || it.maximumSensorMode },
     ).filter { it.second.isNotEmpty() }
     val unavailableMaximum = reportedMaximum?.takeIf { maximum ->
         maximum.maximumSensorMode && resolutions.none {
@@ -135,7 +136,7 @@ fun ResolutionSheet(
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("Photo resolution", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Only outputs Android exposes and CameraX can bind are selectable.",
+                "Every option comes from Android camera capabilities. Maximum-sensor output uses a dedicated Camera2 still-capture session.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
@@ -188,6 +189,7 @@ fun ResolutionSheet(
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(resolution.megapixelLabel, style = MaterialTheme.typography.titleMedium)
                                     when {
+                                        resolution.maximumSensorMode -> Badge("Maximum sensor")
                                         resolution.highResolution -> Badge("High resolution")
                                         resolution.recommended -> Badge("Recommended")
                                         resolution.maximum -> Badge("Maximum")
@@ -198,7 +200,13 @@ fun ResolutionSheet(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                if (resolution.highResolution) {
+                                if (resolution.maximumSensorMode) {
+                                    Text(
+                                        "Full sensor only - slower capture - preview briefly restarts after saving",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                    )
+                                } else if (resolution.highResolution) {
                                     Text(
                                         "Larger file - slower capture - exact output is verified after saving",
                                         style = MaterialTheme.typography.bodySmall,
@@ -243,7 +251,7 @@ fun CompositionSheet(
         ) {
             Text("Composition guide", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 4.dp))
             Text(
-                "${professionalGuideCatalog.size} photographic guides · Tap a card to apply",
+                "${professionalGuideCatalog.size} photographic guides · Swipe sideways, then tap to apply",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 4.dp).padding(top = 3.dp, bottom = 12.dp),
@@ -441,28 +449,18 @@ private fun GuideCatalogGrid(
     style: GuideStyle,
     onSelect: (CompositionGuide) -> Unit,
 ) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val columnCount = if (maxWidth >= 600.dp) 3 else 2
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            professionalGuideCatalog.chunked(columnCount).forEach { guides ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    guides.forEach { guide ->
-                        GuideTile(
-                            guide = guide,
-                            selected = guide == selected,
-                            style = style,
-                            onClick = { onSelect(guide) },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    repeat(columnCount - guides.size) {
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
-            }
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(professionalGuideCatalog, key = { it.name }) { guide ->
+            GuideTile(
+                guide = guide,
+                selected = guide == selected,
+                style = style,
+                onClick = { onSelect(guide) },
+                modifier = Modifier.width(174.dp),
+            )
         }
     }
 }

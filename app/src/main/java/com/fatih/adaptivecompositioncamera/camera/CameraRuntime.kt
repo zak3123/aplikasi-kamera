@@ -53,6 +53,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.delay
 
 class CameraRuntime(
     private val context: Context,
@@ -109,13 +110,14 @@ class CameraRuntime(
                 .build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
             previewUseCase = preview
             val highResolutionMode = mode == CameraMode.MaximumResolution && resolution?.highResolution == true
+            val maximumSensorMode = mode == CameraMode.MaximumResolution && resolution?.maximumSensorMode == true
             val captureBuilder = ImageCapture.Builder()
                 .setTargetRotation(targetRotation)
                 .setCaptureMode(
                 if (mode == CameraMode.MaximumResolution) ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
                 else ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY,
             )
-            if (resolution != null) {
+            if (resolution != null && !resolution.maximumSensorMode) {
                 val resolutionSelector = ResolutionSelector.Builder()
                     .setAllowedResolutionMode(
                         if (resolution.highResolution) {
@@ -162,6 +164,7 @@ class CameraRuntime(
                 completeBind(
                     targetRotation = targetRotation,
                     sensorPixelMode = when {
+                        maximumSensorMode -> "Maximum Resolution (Camera2 still capture)"
                         highResolutionMode -> "High Resolution"
                         else -> "Normal"
                     },
@@ -279,7 +282,45 @@ class CameraRuntime(
         onError(message)
     }
 
-    suspend fun capturePhoto(reverseHorizontal: Boolean = false): Result<Uri> = suspendCoroutine { continuation ->
+    suspend fun capturePhoto(
+        reverseHorizontal: Boolean = false,
+        cameraId: String? = null,
+        resolution: CameraResolution? = null,
+        targetRotation: Int = 0,
+        flashMode: FlashMode = FlashMode.Off,
+    ): Result<Uri> {
+        if (resolution?.maximumSensorMode == true) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                return Result.failure(
+                    UnsupportedOperationException("Maximum-resolution sensor mode requires Android 12 or newer."),
+                )
+            }
+            val resolvedCameraId = cameraId ?: return Result.failure(
+                IllegalStateException("Android did not provide an ID for the maximum-resolution camera."),
+            )
+            _state.value = CameraSessionState.Capturing
+            provider?.unbindAll()
+            imageCapture = null
+            videoCapture = null
+            previewUseCase = null
+            camera = null
+            delay(180)
+            val result = MaximumResolutionCamera2Capture(context, mediaRepository).capture(
+                cameraId = resolvedCameraId,
+                resolution = resolution,
+                targetRotation = targetRotation,
+                flashMode = flashMode,
+            )
+            _state.value = result.fold(
+                onSuccess = { CameraSessionState.Reconfiguring },
+                onFailure = { CameraSessionState.Error(it.message ?: "Maximum-resolution capture failed.") },
+            )
+            return result
+        }
+        return captureCameraXPhoto(reverseHorizontal)
+    }
+
+    private suspend fun captureCameraXPhoto(reverseHorizontal: Boolean): Result<Uri> = suspendCoroutine { continuation ->
         if (_state.value == CameraSessionState.Capturing) {
             continuation.resume(Result.failure(IllegalStateException("A photo capture is already in progress.")))
             return@suspendCoroutine
