@@ -1,6 +1,6 @@
 STATUS=IN_PROGRESS
 PROJECT_PATH=D:\aplikasi-kamera
-IMPLEMENTATION_COMMIT=PENDING
+IMPLEMENTATION_COMMIT=0e30580
 PULL_REQUEST=https://github.com/zak3123/aplikasi-kamera/pull/1
 APK_PATH=D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-debug.apk
 APK_SIZE_BYTES=24740306
