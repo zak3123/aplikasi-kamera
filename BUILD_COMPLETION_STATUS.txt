@@ -1,4 +1,4 @@
-STATUS=IN_PROGRESS
+STATUS=SUCCESS
 PROJECT_PATH=D:\aplikasi-kamera
 IMPLEMENTATION_COMMIT=0e30580
 PULL_REQUEST=https://github.com/zak3123/aplikasi-kamera/pull/1
