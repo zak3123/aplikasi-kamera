@@ -5,6 +5,9 @@ import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.CaptureRequest
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -23,6 +26,8 @@ import androidx.camera.core.ViewPort
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
@@ -70,6 +75,14 @@ class CameraRuntime(
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
     private var camera: Camera? = null
+    private var sensorIsoRange: android.util.Range<Int>? = null
+    private var sensorExposureRange: android.util.Range<Long>? = null
+    private var sensorMinimumFocusDistance = 0f
+    private var manualIso: Int? = null
+    private var manualExposureNanos: Long? = null
+    private var manualFocusDistance: Float? = null
+    private var manualWhiteBalanceMode = CameraMetadata.CONTROL_AWB_MODE_AUTO
+    private var availableWhiteBalanceModes: List<Int> = emptyList()
 
     @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
     fun bind(
@@ -117,7 +130,9 @@ class CameraRuntime(
                 if (mode == CameraMode.MaximumResolution) ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
                 else ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY,
             )
-            if (resolution != null && !resolution.maximumSensorMode) {
+            if (resolution != null && !resolution.maximumSensorMode &&
+                (!resolution.highResolution || Build.VERSION.SDK_INT < Build.VERSION_CODES.S)
+            ) {
                 val resolutionSelector = ResolutionSelector.Builder()
                     .setAllowedResolutionMode(
                         if (resolution.highResolution) {
@@ -246,6 +261,7 @@ class CameraRuntime(
         return cameraProvider.bindToLifecycle(lifecycleOwner, selector, group)
     }
 
+    @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
     private fun completeBind(
         targetRotation: Int,
         sensorPixelMode: String,
@@ -257,6 +273,21 @@ class CameraRuntime(
         val captureResolution = imageCapture?.resolutionInfo?.resolution
         val videoResolution = videoCapture?.resolutionInfo?.resolution
         val previewResolution = previewUseCase?.resolutionInfo?.resolution
+        val camera2Info = info?.let { runCatching { Camera2CameraInfo.from(it) }.getOrNull() }
+        val capabilities = camera2Info?.getCameraCharacteristic(
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES,
+        ) ?: intArrayOf()
+        sensorIsoRange = camera2Info?.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
+        sensorExposureRange = camera2Info?.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)
+        sensorMinimumFocusDistance = camera2Info
+            ?.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
+        availableWhiteBalanceModes = camera2Info
+            ?.getCameraCharacteristic(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES)
+            ?.toList() ?: emptyList()
+        manualIso = null
+        manualExposureNanos = null
+        manualFocusDistance = null
+        manualWhiteBalanceMode = CameraMetadata.CONTROL_AWB_MODE_AUTO
         _state.value = CameraSessionState.Ready
         onBound(
             RuntimeCameraInfo(
@@ -273,6 +304,15 @@ class CameraRuntime(
                 previewHeight = previewResolution?.height ?: 0,
                 targetRotation = targetRotation,
                 sensorPixelMode = sensorPixelMode,
+                supportsManualSensor = capabilities.contains(
+                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR,
+                ) && sensorIsoRange != null && sensorExposureRange != null,
+                isoMin = sensorIsoRange?.lower ?: 0,
+                isoMax = sensorIsoRange?.upper ?: 0,
+                exposureTimeMinNanos = sensorExposureRange?.lower ?: 0L,
+                exposureTimeMaxNanos = sensorExposureRange?.upper ?: 0L,
+                minFocusDistance = sensorMinimumFocusDistance,
+                availableWhiteBalanceModes = availableWhiteBalanceModes,
             ),
         )
     }
@@ -289,14 +329,16 @@ class CameraRuntime(
         targetRotation: Int = 0,
         flashMode: FlashMode = FlashMode.Off,
     ): Result<Uri> {
-        if (resolution?.maximumSensorMode == true) {
+        val useCamera2HighResolution = resolution?.maximumSensorMode == true ||
+            (resolution?.highResolution == true && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+        if (useCamera2HighResolution) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                 return Result.failure(
-                    UnsupportedOperationException("Maximum-resolution sensor mode requires Android 12 or newer."),
+                    UnsupportedOperationException("Dedicated high-resolution capture requires Android 12 or newer."),
                 )
             }
             val resolvedCameraId = cameraId ?: return Result.failure(
-                IllegalStateException("Android did not provide an ID for the maximum-resolution camera."),
+                IllegalStateException("Android did not provide an ID for the high-resolution camera."),
             )
             _state.value = CameraSessionState.Capturing
             provider?.unbindAll()
@@ -313,7 +355,7 @@ class CameraRuntime(
             )
             _state.value = result.fold(
                 onSuccess = { CameraSessionState.Reconfiguring },
-                onFailure = { CameraSessionState.Error(it.message ?: "Maximum-resolution capture failed.") },
+                onFailure = { CameraSessionState.Error(it.message ?: "High-resolution capture failed.") },
             )
             return result
         }
@@ -480,6 +522,63 @@ class CameraRuntime(
         return safe
     }
 
+    @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
+    fun setManualExposure(iso: Int, exposureNanos: Long): Pair<Int, Long>? {
+        val isoRange = sensorIsoRange ?: return null
+        val exposureRange = sensorExposureRange ?: return null
+        manualIso = iso.coerceIn(isoRange.lower, isoRange.upper)
+        manualExposureNanos = exposureNanos.coerceIn(
+            exposureRange.lower,
+            minOf(exposureRange.upper, 250_000_000L).coerceAtLeast(exposureRange.lower),
+        )
+        return if (applyProControls()) manualIso!! to manualExposureNanos!! else null
+    }
+
+    @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
+    fun setManualFocus(distance: Float?): Float? {
+        manualFocusDistance = distance?.coerceIn(0f, sensorMinimumFocusDistance)
+        return if (applyProControls()) manualFocusDistance else null
+    }
+
+    @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
+    fun setWhiteBalance(mode: Int): Boolean {
+        if (mode !in availableWhiteBalanceModes) return false
+        manualWhiteBalanceMode = mode
+        return applyProControls()
+    }
+
+    @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
+    fun resetProControls(): Boolean {
+        val control = camera?.cameraControl ?: return false
+        manualIso = null
+        manualExposureNanos = null
+        manualFocusDistance = null
+        manualWhiteBalanceMode = CameraMetadata.CONTROL_AWB_MODE_AUTO
+        Camera2CameraControl.from(control).clearCaptureRequestOptions()
+        return true
+    }
+
+    @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
+    private fun applyProControls(): Boolean {
+        val control = camera?.cameraControl ?: return false
+        val options = CaptureRequestOptions.Builder().apply {
+            val iso = manualIso
+            val exposureNanos = manualExposureNanos
+            if (iso != null && exposureNanos != null) {
+                setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+                setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
+                setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, exposureNanos)
+            }
+            manualFocusDistance?.let {
+                setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, it)
+            }
+            setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, manualWhiteBalanceMode)
+        }.build()
+        Camera2CameraControl.from(control).setCaptureRequestOptions(options)
+        return true
+    }
+
     fun release() {
         bindGeneration.incrementAndGet()
         recording?.close()
@@ -489,6 +588,14 @@ class CameraRuntime(
         videoCapture = null
         previewUseCase = null
         camera = null
+        sensorIsoRange = null
+        sensorExposureRange = null
+        sensorMinimumFocusDistance = 0f
+        manualIso = null
+        manualExposureNanos = null
+        manualFocusDistance = null
+        manualWhiteBalanceMode = CameraMetadata.CONTROL_AWB_MODE_AUTO
+        availableWhiteBalanceModes = emptyList()
         _state.value = CameraSessionState.Released
     }
 }

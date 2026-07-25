@@ -23,7 +23,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.DocumentScanner
+import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -136,7 +140,7 @@ fun ResolutionSheet(
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("Photo resolution", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Every option comes from Android camera capabilities. Maximum-sensor output uses a dedicated Camera2 still-capture session.",
+                "Every option comes from Android camera capabilities. High-resolution output uses a dedicated Camera2 still-capture session when required.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
@@ -529,6 +533,12 @@ fun MoreModesSheet(
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("More modes", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Only modes with a working capture path for this lens are shown.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 3.dp, bottom = 10.dp),
+            )
             val additional = modes.filterNot { it in listOf(CameraMode.Portrait, CameraMode.Photo, CameraMode.Video) }
             if (additional.isEmpty()) {
                 Surface(
@@ -553,21 +563,48 @@ fun MoreModesSheet(
                     }
                 }
             } else {
-                additional.forEach { mode ->
+                additional.chunked(2).forEach { rowModes ->
                     Row(
-                        Modifier.fillMaxWidth().clickable {
-                            onSelect(mode)
-                            onDismiss()
-                        }.padding(vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(mode.label(maxResolution), style = MaterialTheme.typography.titleMedium)
-                            Text(mode.description(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        rowModes.forEach { mode ->
+                            val selected = mode == activeMode
+                            Surface(
+                                onClick = {
+                                    onSelect(mode)
+                                    onDismiss()
+                                },
+                                color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                shape = MaterialTheme.shapes.large,
+                                modifier = Modifier.weight(1f).aspectRatio(1.45f),
+                            ) {
+                                Column(
+                                    Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Icon(mode.icon(), contentDescription = null, modifier = Modifier.size(28.dp))
+                                        if (selected) Icon(Icons.Rounded.Check, "Selected mode")
+                                    }
+                                    Column {
+                                        Text(mode.label(maxResolution), style = MaterialTheme.typography.titleMedium)
+                                        Text(
+                                            mode.description(),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        if (mode == activeMode) Icon(Icons.Rounded.Check, "Selected mode")
+                        if (rowModes.size == 1) Box(Modifier.weight(1f))
                     }
-                    HorizontalDivider()
                 }
             }
         }
@@ -616,6 +653,7 @@ fun CameraMode.label(maxResolution: CameraResolution? = null): String = when (th
     CameraMode.Photo -> "Photo"
     CameraMode.Video -> "Video"
     CameraMode.Pro -> "Pro"
+    CameraMode.Documents -> "Documents"
     CameraMode.Night -> "Night"
     CameraMode.MaximumResolution -> maxResolution?.megapixelLabel ?: "Max Resolution"
     CameraMode.SlowMotion -> "Slow Motion"
@@ -627,6 +665,7 @@ fun CameraMode.label(maxResolution: CameraResolution? = null): String = when (th
 
 private fun CameraMode.description(): String = when (this) {
     CameraMode.Pro -> "Manual controls supported by this camera"
+    CameraMode.Documents -> "Guided document capture saved to gallery"
     CameraMode.MaximumResolution -> "Slower capture and larger files"
     CameraMode.SlowMotion -> "Uses an exposed high-speed configuration"
     CameraMode.HighFrameRate -> "Records using supported high-speed FPS"
@@ -637,6 +676,13 @@ private fun CameraMode.description(): String = when (this) {
     CameraMode.Portrait -> "Bokeh camera extension"
     CameraMode.Photo -> "Standard still capture"
     CameraMode.Video -> "Standard video recording"
+}
+
+private fun CameraMode.icon() = when (this) {
+    CameraMode.Pro -> Icons.Rounded.Tune
+    CameraMode.Documents -> Icons.Rounded.DocumentScanner
+    CameraMode.MaximumResolution -> Icons.Rounded.HighQuality
+    else -> Icons.Rounded.CameraAlt
 }
 
 private fun SpiralOrientation.shortLabel(): String = when (this) {

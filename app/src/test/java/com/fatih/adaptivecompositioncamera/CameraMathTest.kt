@@ -286,7 +286,7 @@ class CameraMathTest {
     }
 
     @Test
-    fun cameraXHighResolutionOutputIsSelectableAndEnablesRealMpMode() {
+    fun androidHighResolutionOutputIsSelectableAndEnablesRealMpMode() {
         val recommended = resolution(4000, 3000, recommended = true)
         val highResolution = resolution(8000, 6000).copy(highResolution = true)
         val capability = fakeCapability(jpeg = listOf(recommended), highResolutionJpeg = listOf(highResolution))
@@ -295,6 +295,16 @@ class CameraMathTest {
         assertEquals(48.0, capability.displayMaximumResolution?.megapixels ?: 0.0, 0.0)
         assertTrue(CameraMode.MaximumResolution in CameraConfigurationResolver().availableModes(capability))
         assertFalse(recommended.id == highResolution.id)
+    }
+
+    @Test
+    fun proIsCapabilityDrivenAndDocumentsKeepsARealPhotoPath() {
+        val manual = fakeCapability(jpeg = listOf(resolution(4000, 3000, recommended = true)))
+        val automaticOnly = manual.copy(supportsManualSensor = false)
+        assertTrue(CameraMode.Pro in CameraConfigurationResolver().availableModes(manual))
+        assertFalse(CameraMode.Pro in CameraConfigurationResolver().availableModes(automaticOnly))
+        assertTrue(CameraMode.Documents in CameraConfigurationResolver().availableModes(manual))
+        assertTrue(CameraMode.Documents in CameraConfigurationResolver().availableModes(automaticOnly))
     }
 
     private fun arcPoint(bounds: com.fatih.adaptivecompositioncamera.utility.FloatBounds, angleDegrees: Float): FloatPoint {

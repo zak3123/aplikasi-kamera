@@ -132,7 +132,7 @@ private fun CameraCapabilitySection(camera: CameraCapability, diagnosticsMode: B
         Info("Hardware support", camera.hardwareLevel.name)
         Info("Logical / physical", if (camera.physicalCameraIds.isEmpty()) "No physical IDs exposed" else camera.physicalCameraIds.joinToString())
         Info("Maximum JPEG", camera.jpegResolutions.firstOrNull()?.displayText() ?: "Unavailable")
-        Info("CameraX high-resolution JPEG", camera.highResolutionJpegs.firstOrNull()?.displayText() ?: "Not exposed")
+        Info("Android high-resolution JPEG", camera.highResolutionJpegs.firstOrNull()?.displayText() ?: "Not exposed")
         Info("Maximum-resolution sensor mode", camera.maximumResolutionJpegs.firstOrNull()?.displayText() ?: "Not exposed")
         Info("Ultra-high-resolution sensor", camera.supportsUltraHighResolutionSensor.toString())
         Info("Sensor pixel modes", camera.sensorPixelModes.joinToString().ifBlank { "Not reported" })

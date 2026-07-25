@@ -34,8 +34,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 
 /**
- * One-shot Camera2 path for JPEG sizes that exist only in Android's maximum-resolution
- * stream map. CameraX remains responsible for preview and ordinary capture.
+ * One-shot Camera2 path for Android-exposed high-resolution JPEG sizes.
+ * CameraX remains responsible for preview and ordinary capture.
  */
 @RequiresApi(Build.VERSION_CODES.S)
 internal class MaximumResolutionCamera2Capture(
@@ -48,7 +48,9 @@ internal class MaximumResolutionCamera2Capture(
         targetRotation: Int,
         flashMode: FlashMode,
     ): Result<Uri> = runCatching {
-        require(resolution.maximumSensorMode) { "The requested output is not a maximum-sensor resolution." }
+        require(resolution.maximumSensorMode || resolution.highResolution) {
+            "The requested output is not an Android high-resolution JPEG."
+        }
         require(resolution.width > 0 && resolution.height > 0) { "The requested output dimensions are invalid." }
         withTimeout(20_000L) {
             suspendCancellableCoroutine { continuation ->
@@ -95,7 +97,7 @@ internal class MaximumResolutionCamera2Capture(
 
         @SuppressLint("MissingPermission")
         fun start() {
-            runCatching { validateMaximumOutput() }.onFailure {
+            runCatching { validateHighResolutionOutput() }.onFailure {
                 completeFailure(it)
                 return
             }
@@ -103,7 +105,7 @@ internal class MaximumResolutionCamera2Capture(
                 val image = imageReader.acquireNextImage() ?: return@setOnImageAvailableListener
                 val result = runCatching {
                     val buffer = image.planes.firstOrNull()?.buffer
-                        ?: throw IllegalStateException("Maximum-resolution capture returned no JPEG plane.")
+                        ?: throw IllegalStateException("High-resolution capture returned no JPEG plane.")
                     val jpeg = ByteArray(buffer.remaining()).also(buffer::get)
                     saveJpeg(jpeg)
                 }
@@ -124,31 +126,36 @@ internal class MaximumResolutionCamera2Capture(
 
                     override fun onDisconnected(camera: CameraDevice) {
                         camera.close()
-                        completeFailure(IllegalStateException("The camera disconnected during maximum-resolution capture."))
+                        completeFailure(IllegalStateException("The camera disconnected during high-resolution capture."))
                     }
 
                     override fun onError(camera: CameraDevice, error: Int) {
                         camera.close()
-                        completeFailure(IllegalStateException("Camera2 maximum-resolution open failed with error $error."))
+                        completeFailure(IllegalStateException("Camera2 high-resolution open failed with error $error."))
                     }
                 })
             }.onFailure(::completeFailure)
         }
 
-        private fun validateMaximumOutput() {
+        private fun validateHighResolutionOutput() {
             val characteristics = manager.getCameraCharacteristics(cameraId)
-            val capabilities =
-                characteristics[CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES] ?: intArrayOf()
-            require(
-                CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR in capabilities,
-            ) {
-                "This camera does not expose Android's ultra-high-resolution sensor capability."
+            val sizes = if (resolution.maximumSensorMode) {
+                val capabilities =
+                    characteristics[CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES] ?: intArrayOf()
+                require(
+                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR in capabilities,
+                ) {
+                    "This camera does not expose Android's ultra-high-resolution sensor capability."
+                }
+                characteristics[
+                    CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION
+                ]?.getOutputSizes(ImageFormat.JPEG).orEmpty()
+            } else {
+                characteristics[CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP]
+                    ?.getHighResolutionOutputSizes(ImageFormat.JPEG).orEmpty()
             }
-            val sizes = characteristics[
-                CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION
-            ]?.getOutputSizes(ImageFormat.JPEG).orEmpty()
             require(sizes.any { it.width == resolution.width && it.height == resolution.height }) {
-                "${resolution.width} x ${resolution.height} is no longer present in the maximum-resolution JPEG map."
+                "${resolution.width} x ${resolution.height} is no longer exposed as a high-resolution JPEG."
             }
         }
 
@@ -159,7 +166,9 @@ internal class MaximumResolutionCamera2Capture(
         private fun createSession(camera: CameraDevice) {
             runCatching {
                 val output = OutputConfiguration(reader.surface).apply {
-                    addSensorPixelModeUsed(CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION)
+                    if (resolution.maximumSensorMode) {
+                        addSensorPixelModeUsed(CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION)
+                    }
                 }
                 val configuration = SessionConfiguration(
                     SessionConfiguration.SESSION_REGULAR,
@@ -179,7 +188,7 @@ internal class MaximumResolutionCamera2Capture(
                             captureSession.close()
                             completeFailure(
                                 IllegalStateException(
-                                    "Android rejected the ${resolution.width} x ${resolution.height} maximum-resolution stream.",
+                                    "Android rejected the ${resolution.width} x ${resolution.height} high-resolution stream.",
                                 ),
                             )
                         }
@@ -193,7 +202,9 @@ internal class MaximumResolutionCamera2Capture(
             runCatching {
                 val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                     addTarget(reader.surface)
-                    set(CaptureRequest.SENSOR_PIXEL_MODE, CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION)
+                    if (resolution.maximumSensorMode) {
+                        set(CaptureRequest.SENSOR_PIXEL_MODE, CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION)
+                    }
                     set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
                     set(
                         CaptureRequest.CONTROL_AE_MODE,
@@ -222,7 +233,7 @@ internal class MaximumResolutionCamera2Capture(
                         ) {
                             completeFailure(
                                 IllegalStateException(
-                                    "Maximum-resolution capture failed with reason ${failure.reason}.",
+                                    "High-resolution capture failed with reason ${failure.reason}.",
                                 ),
                             )
                         }

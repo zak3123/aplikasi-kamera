@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
+import android.hardware.camera2.CameraMetadata
 import android.os.Build
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -129,6 +130,9 @@ import com.fatih.adaptivecompositioncamera.domain.model.RuntimeCameraInfo
 import com.fatih.adaptivecompositioncamera.media.AndroidMediaRepository
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
@@ -193,7 +197,9 @@ fun CameraScreen(
                 ?: resolutions.firstOrNull(),
         )
     }
-    val effectivePhotoAspect = if (selectedResolution?.maximumSensorMode == true) {
+    val dedicatedHighResolution = selectedResolution?.maximumSensorMode == true ||
+        (selectedResolution?.highResolution == true && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+    val effectivePhotoAspect = if (dedicatedHighResolution) {
         PhotoAspectRatio.FullSensor
     } else {
         settings.photoAspectRatio
@@ -230,6 +236,13 @@ fun CameraScreen(
     var lastRecordingError by remember { mutableStateOf<String?>(null) }
     var actualSavedResolution by remember { mutableStateOf<String?>(null) }
     var configurationMismatch by remember { mutableStateOf<String?>(null) }
+    var proIso by remember(activeCameraId) { mutableIntStateOf(100) }
+    var proExposureNanos by remember(activeCameraId) { mutableStateOf(10_000_000L) }
+    var proFocusDistance by remember(activeCameraId) { mutableFloatStateOf(0f) }
+    var proManualExposure by remember(activeCameraId) { mutableStateOf(false) }
+    var proManualFocus by remember(activeCameraId) { mutableStateOf(false) }
+    var proWhiteBalance by remember(activeCameraId) { mutableIntStateOf(CameraMetadata.CONTROL_AWB_MODE_AUTO) }
+    var proControl by remember { mutableStateOf(ProControl.Iso) }
 
     val estimatedOutputDimensions = selectedResolution?.let { source ->
         if (settings.matchPreviewCrop) {
@@ -286,11 +299,50 @@ fun CameraScreen(
             maximumChoice?.let {
                 selectedResolution = it
                 activeCapability?.cameraId?.let { cameraId -> onResolutionChange(cameraId, it.id) }
-                if (it.maximumSensorMode && settings.photoAspectRatio != PhotoAspectRatio.FullSensor) {
+                if ((it.maximumSensorMode ||
+                        (it.highResolution && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)) &&
+                    settings.photoAspectRatio != PhotoAspectRatio.FullSensor
+                ) {
                     onAspectRatioChange(PhotoAspectRatio.FullSensor)
-                    onMessage("Maximum sensor capture uses the full exposed JPEG output. Crops are disabled for this mode.")
+                    onMessage("High-resolution capture uses the full exposed JPEG output. Crops are disabled for this mode.")
                 }
             }
+        }
+    }
+    LaunchedEffect(
+        settings.mode,
+        runtimeInfo.supportsManualSensor,
+        runtimeInfo.isoMin,
+        runtimeInfo.isoMax,
+        runtimeInfo.exposureTimeMinNanos,
+        runtimeInfo.exposureTimeMaxNanos,
+        runtimeInfo.availableWhiteBalanceModes,
+        runtimeInfo.targetRotation,
+    ) {
+        if (settings.mode == CameraMode.Pro && runtimeInfo.supportsManualSensor) {
+            if (
+                proControl == ProControl.WhiteBalance &&
+                runtimeInfo.availableWhiteBalanceModes.size <= 1
+            ) {
+                proControl = ProControl.Iso
+            }
+            proIso = proIso.coerceIn(runtimeInfo.isoMin, runtimeInfo.isoMax)
+            proExposureNanos = proExposureNanos.coerceIn(
+                runtimeInfo.exposureTimeMinNanos,
+                minOf(runtimeInfo.exposureTimeMaxNanos, 250_000_000L)
+                    .coerceAtLeast(runtimeInfo.exposureTimeMinNanos),
+            )
+            if (proManualExposure) runtime.setManualExposure(proIso, proExposureNanos)
+            if (proWhiteBalance in runtimeInfo.availableWhiteBalanceModes) {
+                runtime.setWhiteBalance(proWhiteBalance)
+            } else {
+                proWhiteBalance = CameraMetadata.CONTROL_AWB_MODE_AUTO
+            }
+        } else {
+            proManualExposure = false
+            proManualFocus = false
+            runtime.resetProControls()
+            proWhiteBalance = CameraMetadata.CONTROL_AWB_MODE_AUTO
         }
     }
     LaunchedEffect(activeCameraId, selectedResolution?.id, effectivePhotoAspect, settings.matchPreviewCrop) {
@@ -356,7 +408,7 @@ fun CameraScreen(
             matchPreviewCrop = settings.matchPreviewCrop,
             onBound = {
                 runtimeInfo = it
-                if (selectedResolution?.maximumSensorMode != true) {
+                if (!dedicatedHighResolution) {
                     val accepted = resolutions.firstOrNull { resolution ->
                         resolution.width == it.captureWidth && resolution.height == it.captureHeight
                     }
@@ -509,8 +561,8 @@ fun CameraScreen(
                         val captured = mediaRepository.mediaItem(context, uri, "image/jpeg")?.copy(
                             cameraId = activeCapability?.cameraId,
                             requestedResolution = selectedResolution?.let { "${it.width} x ${it.height}" },
-                            boundResolution = if (selectedResolution?.maximumSensorMode == true) {
-                                selectedResolution?.let { "${it.width} x ${it.height} Camera2 maximum sensor" }
+                            boundResolution = if (dedicatedHighResolution) {
+                                selectedResolution?.let { "${it.width} x ${it.height} Camera2 high resolution" }
                             } else {
                                 runtimeInfo.captureWidth.takeIf { it > 0 }
                                     ?.let { "${runtimeInfo.captureWidth} x ${runtimeInfo.captureHeight}" }
@@ -539,7 +591,7 @@ fun CameraScreen(
                         onMessage(lastCaptureError!!)
                     }
             } finally {
-                if (selectedResolution?.maximumSensorMode == true) cameraRebindToken++
+                if (dedicatedHighResolution) cameraRebindToken++
                 captureInProgress = false
                 captureEffectVisible = false
                 flashVisible = false
@@ -591,6 +643,23 @@ fun CameraScreen(
         }
     }
 
+    fun selectMode(mode: CameraMode) {
+        if (mode == CameraMode.Pro && selectedResolution?.let { it.highResolution || it.maximumSensorMode } == true) {
+            activeCapability?.jpegResolutions?.firstOrNull { it.recommended }
+                ?.let { normal ->
+                    selectedResolution = normal
+                    onResolutionChange(activeCapability.cameraId, normal.id)
+                }
+        }
+        if (mode != CameraMode.Pro) {
+            proManualExposure = false
+            proManualFocus = false
+            proWhiteBalance = CameraMetadata.CONTROL_AWB_MODE_AUTO
+            runtime.resetProControls()
+        }
+        onModeChange(mode)
+    }
+
     var lastVolumeShutterEvent by remember { mutableIntStateOf(volumeShutterEvent) }
     LaunchedEffect(volumeShutterEvent) {
         if (volumeShutterEvent != lastVolumeShutterEvent) {
@@ -607,8 +676,6 @@ fun CameraScreen(
         val guideBottom = if (policy.landscape) 10.dp else CameraUiTokens.portraitControlsHeight + 10.dp
         val guideEnd = if (policy.landscape) policy.captureRailWidth + 8.dp else 6.dp
         val guideStart = 6.dp
-        val availableWidth = (maxWidth - guideStart - guideEnd).coerceAtLeast(1.dp)
-        val availableHeight = (maxHeight - guideTop - guideBottom).coerceAtLeast(1.dp)
         val fullLandscapeRatio = maxOf(maxWidth.value, maxHeight.value) /
             minOf(maxWidth.value, maxHeight.value).coerceAtLeast(1f)
         val targetAspect = if (settings.mode == CameraMode.Video) {
@@ -628,28 +695,22 @@ fun CameraScreen(
         }
         val fullScreenFrame =
             settings.mode != CameraMode.Video && effectivePhotoAspect == PhotoAspectRatio.FullScreen
-        val fittedFrame = if (fullScreenFrame) {
-            com.fatih.adaptivecompositioncamera.utility.FloatBounds(
-                0f,
-                0f,
-                maxWidth.value,
-                maxHeight.value,
-            )
+        val fittedFrame = com.fatih.adaptivecompositioncamera.utility.FloatBounds(
+            guideStart.value,
+            guideTop.value,
+            maxWidth.value - guideEnd.value,
+            maxHeight.value - guideBottom.value,
+        )
+        val requestedViewport = if (targetAspect >= 1f) {
+            IntSize((targetAspect * 1_000f).toInt(), 1_000)
         } else {
-            CameraMath.fitAspectRatio(availableWidth.value, availableHeight.value, targetAspect).let {
-                com.fatih.adaptivecompositioncamera.utility.FloatBounds(
-                    it.left + guideStart.value,
-                    it.top + guideTop.value,
-                    it.right + guideStart.value,
-                    it.bottom + guideTop.value,
-                )
-            }
+            IntSize(1_000, (1_000f / targetAspect).toInt())
         }
+        LaunchedEffect(requestedViewport) { captureViewportSize = requestedViewport }
         val frameModifier = Modifier
             .offset(fittedFrame.left.dp, fittedFrame.top.dp)
             .size(fittedFrame.width.dp, fittedFrame.height.dp)
             .clipToBounds()
-            .onSizeChanged { captureViewportSize = it }
         val frameRectPixels = Rect(
             with(density) { fittedFrame.left.dp.toPx() },
             with(density) { fittedFrame.top.dp.toPx() },
@@ -689,6 +750,10 @@ fun CameraScreen(
                     eyeLineFraction = eyeLineFraction,
                     modifier = Modifier.fillMaxSize(),
                 )
+
+                if (settings.mode == CameraMode.Documents) {
+                    DocumentGuideOverlay(Modifier.fillMaxSize())
+                }
 
                 InteractiveGuideLayer(
                     guide = settings.guide,
@@ -744,8 +809,8 @@ fun CameraScreen(
                 onAspectRatio = {
                     if (settings.mode == CameraMode.Video) {
                         onMessage("Video aspect ratio follows the active CameraX video stream.")
-                    } else if (selectedResolution?.maximumSensorMode == true) {
-                        onMessage("Maximum sensor capture always saves the full exposed JPEG output.")
+                    } else if (dedicatedHighResolution) {
+                        onMessage("High-resolution capture always saves the full Android-exposed JPEG output.")
                     } else if (resolutions.isNotEmpty()) showAspectSheet = true
                 },
                 onResolution = {
@@ -776,6 +841,71 @@ fun CameraScreen(
 
         if (countdown > 0) {
             Text(countdown.toString(), color = Color.White, fontSize = 86.sp, modifier = Modifier.align(Alignment.Center))
+        }
+
+        if (settings.mode == CameraMode.Pro && !isRecording && !captureInProgress) {
+            ProControlPanel(
+                runtimeInfo = runtimeInfo,
+                activeControl = proControl,
+                iso = proIso,
+                exposureNanos = proExposureNanos,
+                focusDistance = proFocusDistance,
+                exposureCompensation = exposure,
+                manualExposure = proManualExposure,
+                manualFocus = proManualFocus,
+                whiteBalanceMode = proWhiteBalance,
+                onControl = { proControl = it },
+                onIso = {
+                    proIso = it
+                    proManualExposure = true
+                    runtime.setManualExposure(proIso, proExposureNanos)
+                },
+                onExposure = {
+                    proExposureNanos = it
+                    proManualExposure = true
+                    runtime.setManualExposure(proIso, proExposureNanos)
+                },
+                onFocus = {
+                    proFocusDistance = it
+                    proManualFocus = true
+                    runtime.setManualFocus(it)
+                },
+                onExposureCompensation = {
+                    proManualExposure = false
+                    runtime.resetProControls()
+                    exposure = runtime.setExposure(it)
+                },
+                onWhiteBalance = {
+                    proWhiteBalance = it
+                    runtime.setWhiteBalance(it)
+                },
+                onAuto = {
+                    proManualExposure = false
+                    proManualFocus = false
+                    exposure = runtime.setExposure(0)
+                    proWhiteBalance = CameraMetadata.CONTROL_AWB_MODE_AUTO
+                    runtime.resetProControls()
+                },
+                modifier = if (policy.landscape) {
+                    Modifier.align(Alignment.BottomCenter)
+                        .padding(
+                            start = 0.dp,
+                            top = 0.dp,
+                            end = policy.captureRailWidth + 12.dp,
+                            bottom = 10.dp,
+                        )
+                        .widthIn(max = 620.dp)
+                } else {
+                    Modifier.align(Alignment.BottomCenter)
+                        .padding(
+                            start = 12.dp,
+                            top = 0.dp,
+                            end = 12.dp,
+                            bottom = CameraUiTokens.portraitControlsHeight + 8.dp,
+                        )
+                        .widthIn(max = 620.dp)
+                },
+            )
         }
 
         CameraBottomControls(
@@ -825,7 +955,7 @@ fun CameraScreen(
                     showExposure = false
                 }
             },
-            onMode = { if (!isRecording && !captureInProgress) onModeChange(it) },
+            onMode = { if (!isRecording && !captureInProgress) selectMode(it) },
             onMore = { if (!isRecording && !captureInProgress) showMoreSheet = true },
             onShutter = { if (settings.mode == CameraMode.Video) toggleVideo() else capturePhoto() },
         )
@@ -843,9 +973,12 @@ fun CameraScreen(
                 selectedResolution = it
                 if (it.highResolution || it.maximumSensorMode) {
                     onModeChange(CameraMode.MaximumResolution)
-                    if (it.maximumSensorMode && settings.photoAspectRatio != PhotoAspectRatio.FullSensor) {
+                    if ((it.maximumSensorMode ||
+                            (it.highResolution && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)) &&
+                        settings.photoAspectRatio != PhotoAspectRatio.FullSensor
+                    ) {
                         onAspectRatioChange(PhotoAspectRatio.FullSensor)
-                        onMessage("Maximum sensor capture uses full sensor output and briefly restarts the preview.")
+                        onMessage("High-resolution capture uses full sensor output and briefly restarts the preview.")
                     }
                 }
                 else if (settings.mode == CameraMode.MaximumResolution) onModeChange(CameraMode.Photo)
@@ -888,7 +1021,7 @@ fun CameraScreen(
             modes = availableModes,
             activeMode = settings.mode,
             maxResolution = activeCapability?.displayMaximumResolution,
-            onSelect = onModeChange,
+            onSelect = ::selectMode,
             onDismiss = { showMoreSheet = false },
         )
     }
@@ -948,6 +1081,258 @@ private fun CaptureFrameOverlay(
             drawLine(Color.Black.copy(alpha = 0.58f), origin, origin + vertical, outlineWidth, StrokeCap.Round)
             drawLine(Color.White.copy(alpha = 0.78f), origin, origin + horizontal, lineWidth, StrokeCap.Round)
             drawLine(Color.White.copy(alpha = 0.78f), origin, origin + vertical, lineWidth, StrokeCap.Round)
+        }
+    }
+}
+
+private enum class ProControl { Iso, Shutter, WhiteBalance, Focus, Exposure }
+
+@Composable
+private fun ProControlPanel(
+    runtimeInfo: RuntimeCameraInfo,
+    activeControl: ProControl,
+    iso: Int,
+    exposureNanos: Long,
+    focusDistance: Float,
+    exposureCompensation: Int,
+    manualExposure: Boolean,
+    manualFocus: Boolean,
+    whiteBalanceMode: Int,
+    onControl: (ProControl) -> Unit,
+    onIso: (Int) -> Unit,
+    onExposure: (Long) -> Unit,
+    onFocus: (Float) -> Unit,
+    onExposureCompensation: (Int) -> Unit,
+    onWhiteBalance: (Int) -> Unit,
+    onAuto: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = Color.Black.copy(alpha = 0.76f),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("PRO", color = Color(0xFFFFCC48), style = MaterialTheme.typography.labelLarge)
+                Text(
+                    if (runtimeInfo.supportsManualSensor) "Manual Camera2 controls" else "Preparing manual controls",
+                    color = Color.White.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                Surface(
+                    onClick = onAuto,
+                    color = if (
+                        !manualExposure && !manualFocus && exposureCompensation == 0 &&
+                        whiteBalanceMode == CameraMetadata.CONTROL_AWB_MODE_AUTO
+                    ) {
+                        Color(0xFFFFCC48)
+                    } else {
+                        Color.White.copy(alpha = 0.15f)
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.heightIn(min = 40.dp),
+                ) {
+                    Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            "AUTO",
+                            color = if (
+                                !manualExposure && !manualFocus && exposureCompensation == 0 &&
+                                whiteBalanceMode == CameraMetadata.CONTROL_AWB_MODE_AUTO
+                            ) Color.Black else Color.White,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                ProControl.entries.forEach { control ->
+                    val available = when (control) {
+                        ProControl.Iso, ProControl.Shutter -> runtimeInfo.supportsManualSensor
+                        ProControl.WhiteBalance -> runtimeInfo.availableWhiteBalanceModes.size > 1
+                        ProControl.Focus -> runtimeInfo.minFocusDistance > 0f
+                        ProControl.Exposure -> runtimeInfo.exposureMin != runtimeInfo.exposureMax
+                    }
+                    if (available) {
+                        Surface(
+                            onClick = { onControl(control) },
+                            color = if (activeControl == control) Color.White.copy(alpha = 0.20f) else Color.Transparent,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.heightIn(min = 44.dp),
+                        ) {
+                            Column(
+                                Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(control.shortLabel(), color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    control.valueLabel(
+                                        iso,
+                                        exposureNanos,
+                                        focusDistance,
+                                        exposureCompensation,
+                                        manualExposure,
+                                        manualFocus,
+                                        whiteBalanceMode,
+                                    ),
+                                    color = if (activeControl == control) Color(0xFFFFCC48) else Color.White,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            when (activeControl) {
+                ProControl.Iso -> if (runtimeInfo.isoMax > runtimeInfo.isoMin) {
+                    Slider(
+                        value = iso.coerceIn(runtimeInfo.isoMin, runtimeInfo.isoMax).toFloat(),
+                        onValueChange = { onIso(it.roundToInt()) },
+                        valueRange = runtimeInfo.isoMin.toFloat()..runtimeInfo.isoMax.toFloat(),
+                    )
+                }
+                ProControl.Shutter -> {
+                    val minimum = runtimeInfo.exposureTimeMinNanos.coerceAtLeast(1L)
+                    val maximum = minOf(runtimeInfo.exposureTimeMaxNanos, 250_000_000L).coerceAtLeast(minimum)
+                    if (maximum > minimum) {
+                        val start = ln(minimum.toDouble())
+                        val span = ln(maximum.toDouble()) - start
+                        val normalized = ((ln(exposureNanos.coerceIn(minimum, maximum).toDouble()) - start) / span)
+                            .toFloat().coerceIn(0f, 1f)
+                        Slider(
+                            value = normalized,
+                            onValueChange = { onExposure(exp(start + span * it).toLong()) },
+                            valueRange = 0f..1f,
+                        )
+                    }
+                }
+                ProControl.WhiteBalance -> {
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        runtimeInfo.availableWhiteBalanceModes.forEach { mode ->
+                            Surface(
+                                onClick = { onWhiteBalance(mode) },
+                                color = if (whiteBalanceMode == mode) Color(0xFFFFCC48)
+                                else Color.White.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.heightIn(min = 42.dp),
+                            ) {
+                                Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        whiteBalanceLabel(mode),
+                                        color = if (whiteBalanceMode == mode) Color.Black else Color.White,
+                                        style = MaterialTheme.typography.labelMedium,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                ProControl.Focus -> if (runtimeInfo.minFocusDistance > 0f) {
+                    Slider(
+                        value = focusDistance.coerceIn(0f, runtimeInfo.minFocusDistance),
+                        onValueChange = onFocus,
+                        valueRange = 0f..runtimeInfo.minFocusDistance,
+                    )
+                }
+                ProControl.Exposure -> if (runtimeInfo.exposureMax > runtimeInfo.exposureMin) {
+                    Slider(
+                        value = exposureCompensation.coerceIn(runtimeInfo.exposureMin, runtimeInfo.exposureMax).toFloat(),
+                        onValueChange = { onExposureCompensation(it.roundToInt()) },
+                        valueRange = runtimeInfo.exposureMin.toFloat()..runtimeInfo.exposureMax.toFloat(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun ProControl.shortLabel(): String = when (this) {
+    ProControl.Iso -> "ISO"
+    ProControl.Shutter -> "S"
+    ProControl.WhiteBalance -> "WB"
+    ProControl.Focus -> "MF"
+    ProControl.Exposure -> "EV"
+}
+
+private fun ProControl.valueLabel(
+    iso: Int,
+    exposureNanos: Long,
+    focusDistance: Float,
+    exposureCompensation: Int,
+    manualExposure: Boolean,
+    manualFocus: Boolean,
+    whiteBalanceMode: Int,
+): String = when (this) {
+    ProControl.Iso -> if (manualExposure) iso.toString() else "A"
+    ProControl.Shutter -> if (manualExposure) shutterLabel(exposureNanos) else "A"
+    ProControl.WhiteBalance -> whiteBalanceLabel(whiteBalanceMode)
+    ProControl.Focus -> if (!manualFocus) "AF" else if (focusDistance < 0.01f) "∞" else "${(1f / focusDistance).coerceAtMost(99f).let { "%.1f".format(it) }} m"
+    ProControl.Exposure -> if (exposureCompensation > 0) "+$exposureCompensation" else exposureCompensation.toString()
+}
+
+private fun whiteBalanceLabel(mode: Int): String = when (mode) {
+    CameraMetadata.CONTROL_AWB_MODE_INCANDESCENT -> "Incandescent"
+    CameraMetadata.CONTROL_AWB_MODE_FLUORESCENT -> "Fluorescent"
+    CameraMetadata.CONTROL_AWB_MODE_WARM_FLUORESCENT -> "Warm"
+    CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT -> "Daylight"
+    CameraMetadata.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT -> "Cloudy"
+    CameraMetadata.CONTROL_AWB_MODE_TWILIGHT -> "Twilight"
+    CameraMetadata.CONTROL_AWB_MODE_SHADE -> "Shade"
+    else -> "Auto"
+}
+
+private fun shutterLabel(nanos: Long): String {
+    val seconds = nanos / 1_000_000_000.0
+    return if (seconds >= 1.0) {
+        "${"%.1f".format(seconds)} s"
+    } else {
+        "1/${(1.0 / seconds.coerceAtLeast(0.000001)).roundToInt()}"
+    }
+}
+
+@Composable
+private fun DocumentGuideOverlay(modifier: Modifier = Modifier) {
+    Canvas(modifier.semantics { contentDescription = "Document framing guide" }) {
+        val pageHeight = size.height * 0.76f
+        val pageWidth = minOf(size.width * 0.82f, pageHeight / 1.4142f)
+        val left = (size.width - pageWidth) / 2f
+        val top = (size.height - pageHeight) / 2f
+        val right = left + pageWidth
+        val bottom = top + pageHeight
+        val shade = Color.Black.copy(alpha = 0.14f)
+        drawRect(shade, size = Size(size.width, top))
+        drawRect(shade, topLeft = Offset(0f, bottom), size = Size(size.width, size.height - bottom))
+        drawRect(shade, topLeft = Offset(0f, top), size = Size(left, pageHeight))
+        drawRect(shade, topLeft = Offset(right, top), size = Size(size.width - right, pageHeight))
+        drawRect(
+            Color.White.copy(alpha = 0.46f),
+            topLeft = Offset(left, top),
+            size = Size(pageWidth, pageHeight),
+            style = Stroke(1.dp.toPx()),
+        )
+        val corner = minOf(pageWidth, pageHeight) * 0.10f
+        val stroke = 3.dp.toPx()
+        val color = Color.White
+        listOf(
+            Offset(left, top) to Offset(1f, 1f),
+            Offset(right, top) to Offset(-1f, 1f),
+            Offset(left, bottom) to Offset(1f, -1f),
+            Offset(right, bottom) to Offset(-1f, -1f),
+        ).forEach { (origin, direction) ->
+            drawLine(color, origin, Offset(origin.x + direction.x * corner, origin.y), stroke, StrokeCap.Square)
+            drawLine(color, origin, Offset(origin.x, origin.y + direction.y * corner), stroke, StrokeCap.Square)
         }
     }
 }

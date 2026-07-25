@@ -18,6 +18,7 @@ enum class CameraMode {
     Photo,
     Video,
     Pro,
+    Documents,
     Night,
     MaximumResolution,
     SlowMotion,
@@ -277,6 +278,13 @@ data class RuntimeCameraInfo(
     val previewHeight: Int = 0,
     val targetRotation: Int = 0,
     val sensorPixelMode: String = "Normal",
+    val supportsManualSensor: Boolean = false,
+    val isoMin: Int = 0,
+    val isoMax: Int = 0,
+    val exposureTimeMinNanos: Long = 0L,
+    val exposureTimeMaxNanos: Long = 0L,
+    val minFocusDistance: Float = 0f,
+    val availableWhiteBalanceModes: List<Int> = emptyList(),
 )
 
 data class MediaItem(

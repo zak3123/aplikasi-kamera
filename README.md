@@ -14,10 +14,14 @@ Native Android camera app using Kotlin, Jetpack Compose, Material 3, CameraX, Ca
 - Settings persisted with DataStore.
 - JSON capability export/copy/share.
 - Responsive phone, tablet, rotation, and resizable-window behavior.
+- `fullSensor` camera rotation, including reverse landscape, without requiring the device-wide rotation lock to be disabled.
+- Capability-driven Pro mode with real Camera2 ISO, shutter-time, white-balance, focus-distance, and CameraX exposure-compensation controls.
+- Documents mode with an unobtrusive A-series page guide and the same automatic MediaStore save path as normal photos.
 - Full-screen preview under compact translucent controls; the selected output frame and composition overlays remain aligned inside the unobstructed capture area.
 - Separate portrait and landscape camera chrome, with a compact portrait gradient and a narrow safe-edge landscape capture rail.
 - Native capture resolution, preview/output crop, bound CameraX resolution, and actual saved JPEG dimensions are tracked separately.
-- Normal JPEG, CameraX-selectable high-resolution JPEG, and API 31+ maximum-sensor-map JPEG outputs are detected separately.
+- Normal JPEG, Android high-resolution JPEG, and API 31+ maximum-sensor-map JPEG outputs are detected separately.
+- API 31+ high-resolution selections use a one-shot Camera2 still session so CameraX preview fallback dimensions cannot overwrite the selected 16/48 MP output.
 - A validated ultra-high-resolution maximum-sensor JPEG uses a dedicated one-shot Camera2 session with `SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION`, automatic MediaStore saving, and CameraX preview restoration.
 - No ads, no analytics, no network permission, no mandatory account, and no cloud upload.
 
@@ -84,7 +88,7 @@ POCO phone/tablet testing is supported as a target, but there is no POCO, Xiaomi
 
 ## Manual Test Checklist
 
-Photo: rear photo, front selfie, mirrored/unmirrored preference, screen flash, timer flow, CameraX high-resolution output, Camera2 maximum-sensor output, exact-bound fallback, rotation, overlays, automatic gallery indexing, share, and delete.
+Photo: rear photo, front selfie, mirrored/unmirrored preference, screen flash, timer flow, Android high-resolution output, Camera2 maximum-sensor output, Pro controls, Documents guide, exact-bound fallback, locked-system-rotation handling, overlays, automatic gallery indexing, share, and delete.
 
 Video: rear video, front video, audio permission, mute setting, zoom, stabilization availability, rotation, interruption, low storage, HFR, slow motion, time lapse.
 

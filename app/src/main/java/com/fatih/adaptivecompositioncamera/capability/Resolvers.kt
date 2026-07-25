@@ -15,6 +15,8 @@ class CameraConfigurationResolver {
     fun availableModes(capability: CameraCapability): List<CameraMode> = buildList {
         add(CameraMode.Photo)
         if (capability.videoResolutions.isNotEmpty()) add(CameraMode.Video)
+        add(CameraMode.Documents)
+        if (capability.supportsManualSensor) add(CameraMode.Pro)
         val recommended = capability.jpegResolutions.firstOrNull { it.recommended }
         val maximum = capability.displayMaximumResolution
         if (maximum != null && recommended != null && maximum.megapixels > recommended.megapixels * 1.2) {
