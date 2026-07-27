@@ -6,6 +6,7 @@ import android.graphics.ImageFormat
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
 import android.media.MediaRecorder
 import android.os.Build
 import android.util.Range
@@ -20,6 +21,7 @@ import com.fatih.adaptivecompositioncamera.domain.model.HighSpeedVideoOption
 import com.fatih.adaptivecompositioncamera.domain.model.LensFacing
 import com.fatih.adaptivecompositioncamera.domain.model.LensRole
 import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
+import com.fatih.adaptivecompositioncamera.domain.model.VideoFpsRange
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,7 +37,22 @@ class AndroidCameraCapabilityRepository(
     override val capabilityReport: StateFlow<CapabilityReport?> = _capabilityReport.asStateFlow()
 
     override suspend fun refresh(): CapabilityReport {
-        val cameras = safeCameraIds().mapNotNull { id -> inspectCamera(id) }
+        val openableIds = safeCameraIds()
+        val scannedOpenable = openableIds.mapNotNull { id -> inspectCamera(id, isOpenable = true) }
+        val physicalParents = buildMap<String, MutableList<String>> {
+            scannedOpenable.forEach { logical ->
+                logical.physicalCameraIds.forEach { physicalId ->
+                    getOrPut(physicalId) { mutableListOf() }.add(logical.cameraId)
+                }
+            }
+        }
+        val openable = scannedOpenable.map { camera ->
+            camera.copy(parentLogicalCameraIds = physicalParents[camera.cameraId].orEmpty())
+        }
+        val physicalOnly = physicalParents.keys.filterNot(openableIds::contains).mapNotNull { id ->
+            inspectCamera(id, isOpenable = false, parentLogicalCameraIds = physicalParents[id].orEmpty())
+        }
+        val cameras = openable + physicalOnly
         return CapabilityReport(
             generatedAtEpochMillis = System.currentTimeMillis(),
             appPackage = context.packageName,
@@ -54,7 +71,11 @@ class AndroidCameraCapabilityRepository(
     }
 
     @SuppressLint("InlinedApi", "NewApi")
-    private fun inspectCamera(cameraId: String): CameraCapability? {
+    private fun inspectCamera(
+        cameraId: String,
+        isOpenable: Boolean,
+        parentLogicalCameraIds: List<String> = emptyList(),
+    ): CameraCapability? {
         val c = try {
             manager.getCameraCharacteristics(cameraId)
         } catch (_: CameraAccessException) {
@@ -73,9 +94,12 @@ class AndroidCameraCapabilityRepository(
         val maximumStreamMap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             c.safe(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION)
         } else null
+        val captureRequestKeys = runCatching { c.availableCaptureRequestKeys }.getOrNull().orEmpty()
         val ultraHighResolution = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR)
-        val maximumJpegSizes = if (ultraHighResolution) {
+        val supportsMaximumPixelMode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            captureRequestKeys.contains(CaptureRequest.SENSOR_PIXEL_MODE)
+        val maximumJpegSizes = if (ultraHighResolution || supportsMaximumPixelMode) {
             maximumStreamMap?.getOutputSizes(ImageFormat.JPEG).orEmpty().toList()
         } else {
             emptyList()
@@ -90,12 +114,27 @@ class AndroidCameraCapabilityRepository(
         val physicalSize = c.safe(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
         val physicalIds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) c.physicalCameraIds.toList() else emptyList()
         val maxJpeg = CameraMath.sortResolutions(jpegSizes, "JPEG").firstOrNull()
+        val fpsRangeValues = c.safe(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+            ?.map { VideoFpsRange(it.lower, it.upper) }.orEmpty()
 
         return CameraCapability(
             cameraId = cameraId,
-            friendlyName = friendlyName(cameraId, facing, physicalIds, focalLengths, physicalSize),
+            friendlyName = friendlyName(
+                cameraId,
+                facing,
+                physicalIds,
+                focalLengths,
+                physicalSize,
+                c.safe(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE),
+                isOpenable,
+            ),
             lensFacing = facing,
-            lensRole = inferLensRole(facing, focalLengths, physicalSize),
+            lensRole = inferLensRole(
+                facing,
+                focalLengths,
+                physicalSize,
+                c.safe(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE),
+            ),
             hardwareLevel = c.safe(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL).toHardwareLevel(),
             sensorOrientation = c.safe(CameraCharacteristics.SENSOR_ORIENTATION),
             activeArray = c.safe(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)?.flattenToString(),
@@ -137,8 +176,32 @@ class AndroidCameraCapabilityRepository(
                 c.safe(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)?.toText()
             } else null,
             supportsUltraHighResolutionSensor = ultraHighResolution,
-            sensorPixelModes = if (ultraHighResolution) listOf("Normal", "Maximum Resolution") else listOf("Normal"),
+            sensorPixelModes = if (maximumJpegSizes.isNotEmpty()) listOf("Normal", "Maximum Resolution") else listOf("Normal"),
+            isOpenable = isOpenable,
+            isLogical = physicalIds.isNotEmpty(),
+            isPhysicalOnly = !isOpenable && parentLogicalCameraIds.isNotEmpty(),
+            parentLogicalCameraIds = parentLogicalCameraIds,
+            maximumPixelArray = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                c.safe(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE_MAXIMUM_RESOLUTION)?.toText()
+            } else null,
+            autofocusModes = c.safe(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES)
+                ?.map(::autofocusModeName).orEmpty(),
+            autoExposureModes = c.safe(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES)
+                ?.map(::autoExposureModeName).orEmpty(),
+            autoWhiteBalanceModes = c.safe(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES)
+                ?.map(::whiteBalanceModeName).orEmpty(),
+            videoStabilizationModes = c.safe(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES)
+                ?.map(::videoStabilizationModeName).orEmpty(),
+            opticalStabilizationModes = c.safe(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
+                ?.map(::opticalStabilizationModeName).orEmpty(),
+            fpsRangeValues = fpsRangeValues,
+            exposureCompensationStep = c.safe(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)?.toString(),
+            maximumDigitalZoom = c.safe(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM),
+            availableCaptureRequestKeys = captureRequestKeys.map { it.name }.sorted(),
             unavailableReasons = buildList {
+                if (!isOpenable) {
+                    add("Physical sensor metadata is visible through logical camera ${parentLogicalCameraIds.joinToString()}, but this camera ID is not independently openable.")
+                }
                 if (maxJpeg == null) add("No JPEG output sizes were exposed by Android for this camera.")
                 if (!capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE)) {
                     add("This camera is not marked as backward-compatible for normal third-party camera capture.")
@@ -217,12 +280,15 @@ class AndroidCameraCapabilityRepository(
         physicalIds: List<String>,
         focalLengths: List<Float>,
         physicalSize: android.util.SizeF?,
+        minFocusDistance: Float?,
+        isOpenable: Boolean,
     ): String {
-        val role = inferLensRole(facing, focalLengths, physicalSize)
+        val role = inferLensRole(facing, focalLengths, physicalSize, minFocusDistance)
         return when (role) {
-            LensRole.Main -> "Rear Main Camera"
+            LensRole.Main, LensRole.Wide -> "Rear Wide Camera"
             LensRole.Ultrawide -> "Rear Ultrawide Camera"
             LensRole.Telephoto -> "Rear Telephoto Camera"
+            LensRole.Macro -> "Rear Macro Camera"
             LensRole.Selfie -> "Front Camera"
             LensRole.External -> "External Camera"
             else -> when (facing) {
@@ -231,13 +297,18 @@ class AndroidCameraCapabilityRepository(
                 LensFacing.External -> "External Camera $cameraId"
                 LensFacing.Unknown -> "Camera $cameraId"
             }
-        } + if (physicalIds.isNotEmpty()) " (logical)" else ""
+        } + when {
+            physicalIds.isNotEmpty() -> " (logical)"
+            !isOpenable -> " (physical)"
+            else -> ""
+        }
     }
 
     private fun inferLensRole(
         facing: LensFacing,
         focalLengths: List<Float>,
         physicalSize: android.util.SizeF?,
+        minFocusDistance: Float?,
     ): LensRole {
         if (facing == LensFacing.Front) return LensRole.Selfie
         if (facing == LensFacing.External) return LensRole.External
@@ -246,10 +317,56 @@ class AndroidCameraCapabilityRepository(
         val approximate35mm = firstFocal * (36f / sensorWidth)
         return when {
             approximate35mm < 20f -> LensRole.Ultrawide
-            approximate35mm in 20f..38f -> LensRole.Main
+            approximate35mm in 20f..38f -> LensRole.Wide
             approximate35mm > 45f -> LensRole.Telephoto
+            minFocusDistance != null && minFocusDistance >= 8f -> LensRole.Macro
             else -> LensRole.Unknown
         }
+    }
+
+    private fun autofocusModeName(mode: Int): String = when (mode) {
+        CameraCharacteristics.CONTROL_AF_MODE_OFF -> "Off"
+        CameraCharacteristics.CONTROL_AF_MODE_AUTO -> "Auto"
+        CameraCharacteristics.CONTROL_AF_MODE_MACRO -> "Macro"
+        CameraCharacteristics.CONTROL_AF_MODE_CONTINUOUS_VIDEO -> "Continuous video"
+        CameraCharacteristics.CONTROL_AF_MODE_CONTINUOUS_PICTURE -> "Continuous picture"
+        CameraCharacteristics.CONTROL_AF_MODE_EDOF -> "EDOF"
+        else -> "Unknown ($mode)"
+    }
+
+    private fun autoExposureModeName(mode: Int): String = when (mode) {
+        CameraCharacteristics.CONTROL_AE_MODE_OFF -> "Off"
+        CameraCharacteristics.CONTROL_AE_MODE_ON -> "On"
+        CameraCharacteristics.CONTROL_AE_MODE_ON_AUTO_FLASH -> "Auto flash"
+        CameraCharacteristics.CONTROL_AE_MODE_ON_ALWAYS_FLASH -> "Always flash"
+        CameraCharacteristics.CONTROL_AE_MODE_ON_AUTO_FLASH_REDEYE -> "Auto red-eye"
+        else -> "Unknown ($mode)"
+    }
+
+    private fun whiteBalanceModeName(mode: Int): String = when (mode) {
+        CameraCharacteristics.CONTROL_AWB_MODE_OFF -> "Off"
+        CameraCharacteristics.CONTROL_AWB_MODE_AUTO -> "Auto"
+        CameraCharacteristics.CONTROL_AWB_MODE_INCANDESCENT -> "Incandescent"
+        CameraCharacteristics.CONTROL_AWB_MODE_FLUORESCENT -> "Fluorescent"
+        CameraCharacteristics.CONTROL_AWB_MODE_WARM_FLUORESCENT -> "Warm fluorescent"
+        CameraCharacteristics.CONTROL_AWB_MODE_DAYLIGHT -> "Daylight"
+        CameraCharacteristics.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT -> "Cloudy"
+        CameraCharacteristics.CONTROL_AWB_MODE_TWILIGHT -> "Twilight"
+        CameraCharacteristics.CONTROL_AWB_MODE_SHADE -> "Shade"
+        else -> "Unknown ($mode)"
+    }
+
+    private fun videoStabilizationModeName(mode: Int): String = when (mode) {
+        CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_OFF -> "Off"
+        CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_ON -> "Standard EIS"
+        2 -> "Preview stabilization"
+        else -> "Unknown ($mode)"
+    }
+
+    private fun opticalStabilizationModeName(mode: Int): String = when (mode) {
+        CameraCharacteristics.LENS_OPTICAL_STABILIZATION_MODE_OFF -> "Off"
+        CameraCharacteristics.LENS_OPTICAL_STABILIZATION_MODE_ON -> "OIS"
+        else -> "Unknown ($mode)"
     }
 
     private fun Int?.toLensFacing(): LensFacing = when (this) {

@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 enum class LensFacing { Front, Rear, External, Unknown }
 
 @Serializable
-enum class LensRole { Main, Ultrawide, Telephoto, Macro, Selfie, External, Unknown }
+enum class LensRole { Main, Wide, Ultrawide, Telephoto, Macro, Selfie, External, Unknown }
 
 @Serializable
 enum class HardwareLevel { Legacy, Limited, Full, Level3, External, Unknown }
@@ -42,11 +42,15 @@ enum class PhotoAspectRatio {
 enum class CompositionGuide {
     None,
     RuleOfThirds,
+    LeadingLines,
     VanishingPoint,
     GoldenRatio,
     GoldenSpiral,
     FrameInFrame,
     Centered,
+    Symmetry,
+    Diagonal,
+    GoldenTriangle,
     TextureRepetition,
     Foreground,
     EyeLine,
@@ -60,6 +64,17 @@ enum class SpiralOrientation { TopLeft, TopRight, BottomLeft, BottomRight }
 enum class GuideLineStyle { Solid, Dashed }
 
 enum class ForegroundZone { Bottom, Left, Right }
+
+enum class PhotoQualityPreset { Maximum, High, Medium, StorageSaver, Custom }
+
+enum class VideoQualitySetting { Auto, UHD, FHD, HD, SD }
+
+enum class VideoStabilizationMode { Off, Standard, Preview, Optical, Auto, Unsupported }
+
+@Serializable
+data class VideoFpsRange(val min: Int, val max: Int) {
+    val label: String get() = if (min == max) "$max FPS" else "$min–$max FPS"
+}
 
 data class GuideStyle(
     val colorArgb: Long = 0xFFFFFFFF,
@@ -81,6 +96,9 @@ data class GuideStyle(
     val foregroundFraction: Float = 0.32f,
     val faceSafeArea: Boolean = true,
     val centeredTarget: Boolean = true,
+    val overlayRotationDegrees: Int = 0,
+    val overlayMirrorHorizontal: Boolean = false,
+    val overlayLocked: Boolean = false,
 )
 
 @Serializable
@@ -169,6 +187,20 @@ data class CameraCapability(
     val supportsUltraHighResolutionSensor: Boolean = false,
     val sensorPixelModes: List<String> = emptyList(),
     val unavailableReasons: List<String> = emptyList(),
+    val isOpenable: Boolean = true,
+    val isLogical: Boolean = false,
+    val isPhysicalOnly: Boolean = false,
+    val parentLogicalCameraIds: List<String> = emptyList(),
+    val maximumPixelArray: String? = null,
+    val autofocusModes: List<String> = emptyList(),
+    val autoExposureModes: List<String> = emptyList(),
+    val autoWhiteBalanceModes: List<String> = emptyList(),
+    val videoStabilizationModes: List<String> = emptyList(),
+    val opticalStabilizationModes: List<String> = emptyList(),
+    val fpsRangeValues: List<VideoFpsRange> = emptyList(),
+    val exposureCompensationStep: String? = null,
+    val maximumDigitalZoom: Float? = null,
+    val availableCaptureRequestKeys: List<String> = emptyList(),
 ) {
     val selectablePhotoResolutions: List<CameraResolution>
         get() = (
@@ -198,6 +230,9 @@ data class CapabilityReport(
     val generatedAtEpochMillis: Long,
     val appPackage: String,
     val cameras: List<CameraCapability>,
+    val manufacturer: String = android.os.Build.MANUFACTURER,
+    val model: String = android.os.Build.MODEL,
+    val androidVersion: String = "${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})",
     val warning: String = "Reported support is based on Android-exposed camera APIs and can differ from the manufacturer stock camera application.",
 )
 
@@ -233,6 +268,9 @@ data class CameraDiagnostics(
     val previewResolution: String? = null,
     val currentFps: String? = null,
     val stabilization: String = "Off",
+    val requestedVideoQuality: String? = null,
+    val supportedVideoQualities: String? = null,
+    val requestedFps: String? = null,
     val extension: String = "None",
     val lastCameraError: String? = null,
     val lastCaptureError: String? = null,
@@ -285,6 +323,10 @@ data class RuntimeCameraInfo(
     val exposureTimeMaxNanos: Long = 0L,
     val minFocusDistance: Float = 0f,
     val availableWhiteBalanceModes: List<Int> = emptyList(),
+    val supportedVideoQualities: List<VideoQualitySetting> = emptyList(),
+    val selectedVideoQuality: VideoQualitySetting = VideoQualitySetting.Auto,
+    val requestedFpsRange: VideoFpsRange? = null,
+    val requestedStabilization: VideoStabilizationMode = VideoStabilizationMode.Off,
 )
 
 data class MediaItem(

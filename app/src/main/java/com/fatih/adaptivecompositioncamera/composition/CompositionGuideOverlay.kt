@@ -45,11 +45,15 @@ fun CompositionGuideOverlay(
         } else null
         val stroke = Stroke(width = width, pathEffect = pathEffect)
         val visibleBounds = Rect(0f, 0f, size.width, size.height)
+        val effectiveMirrored = mirrored xor style.overlayMirrorHorizontal
 
         fun line(start: Offset, end: Offset) = guideLine(start, end, color, stroke, style.outline)
-        fun mappedX(value: Float): Float = CameraMath.mirrorX(value, size.width, mirrored)
+        fun mappedX(value: Float): Float = CameraMath.mirrorX(value, size.width, effectiveMirrored)
 
         clipRect(visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom) {
+            withTransform({
+                rotate(style.overlayRotationDegrees.toFloat(), Offset(size.width / 2f, size.height / 2f))
+            }) {
             when (guide) {
                 CompositionGuide.RuleOfThirds -> {
                     val xs = listOf(size.width / 3f, size.width * 2f / 3f)
@@ -59,6 +63,17 @@ fun CompositionGuideOverlay(
                     if (style.intersections) xs.forEach { x -> ys.forEach { y ->
                         drawCircle(color, 3.2.dp.toPx(), Offset(mappedX(x), y))
                     } }
+                }
+
+                CompositionGuide.LeadingLines -> {
+                    val target = Offset(mappedX(size.width * 0.5f), size.height * 0.34f)
+                    listOf(0f, 0.18f, 0.82f, 1f).forEach { fraction ->
+                        line(Offset(mappedX(size.width * fraction), size.height), target)
+                    }
+                    line(
+                        Offset(mappedX(0f), size.height * 0.72f),
+                        Offset(mappedX(size.width), size.height * 0.72f),
+                    )
                 }
 
                 CompositionGuide.VanishingPoint -> {
@@ -83,7 +98,7 @@ fun CompositionGuideOverlay(
                     }
                 }
 
-                CompositionGuide.GoldenSpiral -> drawGoldenSpiral(color, stroke, style, mirrored)
+                CompositionGuide.GoldenSpiral -> drawGoldenSpiral(color, stroke, style, effectiveMirrored)
 
                 CompositionGuide.FrameInFrame -> {
                     val left = size.width * frameBounds.left
@@ -107,6 +122,42 @@ fun CompositionGuideOverlay(
                     line(Offset(0f, center.y), Offset(size.width, center.y))
                     if (style.centeredTarget) drawCircle(color, size.minDimension * 0.12f, center, style = stroke)
                     drawCircle(color, 4.dp.toPx(), center)
+                }
+
+                CompositionGuide.Symmetry -> {
+                    val centerX = size.width / 2f
+                    line(Offset(centerX, 0f), Offset(centerX, size.height))
+                    line(Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f))
+                    listOf(0.18f, 0.32f).forEach { inset ->
+                        line(
+                            Offset(size.width * inset, 0f),
+                            Offset(centerX, size.height),
+                        )
+                        line(
+                            Offset(size.width * (1f - inset), 0f),
+                            Offset(centerX, size.height),
+                        )
+                    }
+                }
+
+                CompositionGuide.Diagonal -> {
+                    line(Offset(mappedX(0f), 0f), Offset(mappedX(size.width), size.height))
+                    line(Offset(mappedX(size.width), 0f), Offset(mappedX(0f), size.height))
+                    line(Offset(mappedX(size.width * 0.5f), 0f), Offset(mappedX(0f), size.height * 0.5f))
+                    line(Offset(mappedX(size.width * 0.5f), 0f), Offset(mappedX(size.width), size.height * 0.5f))
+                    line(Offset(mappedX(0f), size.height * 0.5f), Offset(mappedX(size.width * 0.5f), size.height))
+                    line(Offset(mappedX(size.width), size.height * 0.5f), Offset(mappedX(size.width * 0.5f), size.height))
+                }
+
+                CompositionGuide.GoldenTriangle -> {
+                    val denominator = size.width * size.width + size.height * size.height
+                    val topRightProjection = if (denominator > 0f) size.width * size.width / denominator else 0.5f
+                    val bottomLeftProjection = if (denominator > 0f) size.height * size.height / denominator else 0.5f
+                    val first = Offset(size.width * topRightProjection, size.height * topRightProjection)
+                    val second = Offset(size.width * bottomLeftProjection, size.height * bottomLeftProjection)
+                    line(Offset(mappedX(0f), 0f), Offset(mappedX(size.width), size.height))
+                    line(Offset(mappedX(size.width), 0f), Offset(mappedX(first.x), first.y))
+                    line(Offset(mappedX(0f), size.height), Offset(mappedX(second.x), second.y))
                 }
 
                 CompositionGuide.TextureRepetition -> {
@@ -197,6 +248,7 @@ fun CompositionGuideOverlay(
                 }
 
                 CompositionGuide.None -> Unit
+            }
             }
         }
     }

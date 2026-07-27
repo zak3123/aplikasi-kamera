@@ -15,7 +15,10 @@ import com.fatih.adaptivecompositioncamera.domain.model.HighSpeedVideoOption
 import com.fatih.adaptivecompositioncamera.domain.model.LensFacing
 import com.fatih.adaptivecompositioncamera.domain.model.LensRole
 import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoQualityPreset
 import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
+import com.fatih.adaptivecompositioncamera.domain.model.VideoQualitySetting
+import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
 import com.fatih.adaptivecompositioncamera.media.AndroidMediaRepository
 import com.fatih.adaptivecompositioncamera.utility.AdaptiveLayout
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
@@ -38,11 +41,15 @@ class CameraMathTest {
             setOf(
                 CompositionGuide.None,
                 CompositionGuide.RuleOfThirds,
+                CompositionGuide.LeadingLines,
                 CompositionGuide.GoldenRatio,
                 CompositionGuide.GoldenSpiral,
                 CompositionGuide.VanishingPoint,
                 CompositionGuide.FrameInFrame,
                 CompositionGuide.Centered,
+                CompositionGuide.Symmetry,
+                CompositionGuide.Diagonal,
+                CompositionGuide.GoldenTriangle,
                 CompositionGuide.TextureRepetition,
                 CompositionGuide.Foreground,
                 CompositionGuide.EyeLine,
@@ -50,9 +57,9 @@ class CameraMathTest {
             ),
             CompositionGuide.entries.toSet(),
         )
-        assertEquals(11, CompositionGuide.entries.size)
+        assertEquals(15, CompositionGuide.entries.size)
         assertEquals(CompositionGuide.entries.toSet(), professionalGuideCatalog.toSet())
-        assertEquals(11, professionalGuideCatalog.size)
+        assertEquals(15, professionalGuideCatalog.size)
     }
 
     @Test
@@ -98,6 +105,52 @@ class CameraMathTest {
         assertTrue(sorted.first().maximum)
         assertEquals(8000, sorted.first().width)
         assertEquals(listOf("16:9", "16:9"), CameraMath.filterByAspectRatio(sorted, 16, 9).map { it.aspectRatioLabel })
+    }
+
+    @Test
+    fun photoQualityPresetsSelectActualExposedOutputs() {
+        val sizes = listOf(
+            resolution(8000, 6000),
+            resolution(4624, 3472),
+            resolution(3264, 2448),
+            resolution(2560, 1440),
+        )
+        assertEquals(48.0, CameraMath.selectPhotoQuality(sizes, PhotoQualityPreset.Maximum)?.megapixels ?: 0.0, 0.0)
+        assertEquals(16.1, CameraMath.selectPhotoQuality(sizes, PhotoQualityPreset.High)?.megapixels ?: 0.0, 0.0)
+        assertEquals(8.0, CameraMath.selectPhotoQuality(sizes, PhotoQualityPreset.Medium)?.megapixels ?: 0.0, 0.0)
+        assertEquals(3.7, CameraMath.selectPhotoQuality(sizes, PhotoQualityPreset.StorageSaver)?.megapixels ?: 0.0, 0.0)
+        assertTrue(CameraMath.selectPhotoQuality(sizes, PhotoQualityPreset.Custom) == null)
+    }
+
+    @Test
+    fun stabilizationOptionsMapOnlyReportedCapabilities() {
+        assertEquals(
+            listOf(VideoStabilizationMode.Unsupported),
+            CameraMath.stabilizationModes(StabilizationSupport(false, false, false)),
+        )
+        assertEquals(
+            listOf(
+                VideoStabilizationMode.Off,
+                VideoStabilizationMode.Standard,
+                VideoStabilizationMode.Preview,
+                VideoStabilizationMode.Optical,
+                VideoStabilizationMode.Auto,
+            ),
+            CameraMath.stabilizationModes(StabilizationSupport(true, true, true)),
+        )
+    }
+
+    @Test
+    fun videoFallbackOrderNeverInventsUnsupportedQuality() {
+        val supported = listOf(VideoQualitySetting.FHD, VideoQualitySetting.HD)
+        assertEquals(
+            listOf(VideoQualitySetting.FHD, VideoQualitySetting.HD),
+            CameraMath.videoFallbackOrder(VideoQualitySetting.UHD, supported),
+        )
+        assertEquals(
+            listOf(VideoQualitySetting.FHD, VideoQualitySetting.HD),
+            CameraMath.videoFallbackOrder(VideoQualitySetting.Auto, supported),
+        )
     }
 
     @Test

@@ -2,108 +2,102 @@
 
 ## Completion
 
-- Completion date and time: 2026-07-25 06:59:11 +07:00 (Asia/Jakarta)
+- Completion date and time: 2026-07-27 (Asia/Jakarta)
 - Project directory: `D:\aplikasi-kamera`
-- Release version: `0.6.1` (`versionCode 8`)
+- Release version: `0.7.0` (`versionCode 9`)
 - Branch: `agent/professional-composition-guides`
-- Final APK: `D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-debug.apk`
-- APK size: 24,740,306 bytes
-- APK SHA-256: `83AA851ABE4AB64DBA356AC0A1180CFB8C45C3501C581261E270BDF13EE7DA62`
+- Final APK: `D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.7.0-debug.apk`
+- APK size: 24,822,230 bytes
+- APK SHA-256: `C795630C4FAE9870A2FE422F1469DF139686764F7695B030BDEC49158450A13A`
 
 ## Validation results
 
-- Build result: SUCCESS — `:app:assembleDebug`
-- Unit-test result: SUCCESS — 27 tests, 0 failures, 0 errors
-- Lint result: SUCCESS — 0 errors, 14 warnings, 1 hint
-- Lint limitations: 13 warnings are dependency/tool update notices. One warning documents Android 16 behavior for the requested `fullSensor` Activity orientation. The Compose hint recommends an unboxed long state but is not a correctness error.
-- Full validation log: `D:\aplikasi-kamera\build-reports\final-validation-v0.6.1.log`
-- Artifact verification log: `D:\aplikasi-kamera\build-reports\final-artifact-verification-v0.6.1.txt`
-- Lint HTML: `D:\aplikasi-kamera\app\build\reports\lint-results-debug.html`
+- Build: SUCCESS — `:app:assembleDebug`
+- Unit tests: SUCCESS — 30 tests, 0 failures, 0 errors
+- Lint: SUCCESS — 0 errors, 14 warnings
+- Validation command used one Gradle worker with daemon and parallel execution disabled.
+- Full log: `D:\aplikasi-kamera\build-reports\final-validation-v0.7.0.log`
+- Artifact verification: `D:\aplikasi-kamera\build-reports\final-artifact-verification-v0.7.0.txt`
+- Lint report: `D:\aplikasi-kamera\app\build\reports\lint-results-debug.html`
+- No Gradle or Java process remained after validation.
 
 ## Files changed
 
-- `APK/AdaptiveCompositionCamera-debug.apk`
+- `ARCHITECTURE.md`
 - `BUILD_COMPLETION_STATUS.txt`
+- `CHANGELOG.md`
 - `PROJECT_COMPLETION_REPORT.md`
 - `README.md`
 - `app/build.gradle.kts`
-- `app/src/main/AndroidManifest.xml`
 - `app/src/main/java/com/fatih/adaptivecompositioncamera/camera/CameraRuntime.kt`
-- `app/src/main/java/com/fatih/adaptivecompositioncamera/camera/MaximumResolutionCamera2Capture.kt`
-- `app/src/main/java/com/fatih/adaptivecompositioncamera/capability/Resolvers.kt`
+- `app/src/main/java/com/fatih/adaptivecompositioncamera/capability/AndroidCameraCapabilityRepository.kt`
+- `app/src/main/java/com/fatih/adaptivecompositioncamera/composition/CompositionGuideOverlay.kt`
 - `app/src/main/java/com/fatih/adaptivecompositioncamera/domain/model/CameraModels.kt`
 - `app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraScreen.kt`
 - `app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraSheets.kt`
 - `app/src/main/java/com/fatih/adaptivecompositioncamera/ui/capability/CapabilityScreen.kt`
+- `app/src/main/java/com/fatih/adaptivecompositioncamera/utility/CameraMath.kt`
 - `app/src/test/java/com/fatih/adaptivecompositioncamera/CameraMathTest.kt`
-- `build-reports/final-validation-v0.6.1.log`
-- `build-reports/final-artifact-verification-v0.6.1.txt`
+- `build-reports/final-artifact-verification-v0.7.0.txt`
+- `build-reports/final-validation-v0.7.0.log`
 
 ## Features completed
 
-- Fixed the selected 16/48 MP value being overwritten by CameraX's lower fallback binding.
-- Android high-resolution JPEGs on API 31+ now use a dedicated one-shot Camera2 still session; ordinary CameraX preview is restored after capture.
-- Maximum-sensor output still validates the ultra-high-resolution capability, maximum-resolution stream map, exact JPEG size, output sensor-pixel mode, and capture-request sensor-pixel mode.
-- Resolution labels continue to come only from Android-exposed JPEG dimensions; no advertised sensor value or upscaling is used.
-- Expanded vanishing-point and other composition renderers to the complete unobstructed preview area. Golden spiral remains aspect-correct and bounded inside its golden rectangle.
-- Added `fullSensor` Activity rotation so portrait, landscape, and reverse landscape can follow the camera orientation even when the global rotation lock is enabled on supported Android versions.
-- Added capability-driven Pro mode. It is visible only for cameras reporting manual-sensor support and provides real Camera2 ISO, shutter-time, white-balance, and focus-distance controls plus CameraX EV.
-- Added Documents mode with an A-series page guide and automatic MediaStore JPEG saving.
-- Replaced the plain More list with compact stock-camera-style mode tiles. Only modes with a working capture path are shown.
-- Preserved automatic MediaStore saving, latest-media thumbnail, in-app viewer, share, delete confirmation, external gallery, video capture, selfie handling, timer, flash, tap focus, zoom, and all 11 composition guides.
+- Scans Android-openable camera IDs and metadata for physical sensors exposed through logical cameras.
+- Keeps physical-only and non-backward-compatible IDs out of the selectable capture-lens list.
+- Reads normal JPEG, high-resolution JPEG, and API 31+ maximum-resolution JPEG stream maps independently.
+- Uses only real stream dimensions for MP labels; no advertised specification or upscaling is used.
+- Adds Maximum, High, Medium, and Storage saver photo presets derived from exposed JPEG outputs.
+- Shows dimensions, aspect ratio, format, estimated JPEG size, high-resolution state, and maximum-sensor state.
+- Preserves exact CameraX `ResolutionSelector` use for normal capture and the dedicated Camera2 high/maximum-resolution still path.
+- Verifies saved JPEG header dimensions and reports requested, bound, and actual output separately.
+- Reads CameraX-supported video qualities and Camera2 AE FPS ranges dynamically.
+- Applies selected FPS and OIS/EIS/preview stabilization through Camera2 interop.
+- Verifies stabilization state from `CaptureResult` and reports inactive combinations instead of presenting a successful fake toggle.
+- Adds real sensor frame duration to manual ISO/shutter requests and retains Auto reset behavior.
+- Adds Leading Lines, Symmetry, Diagonal, and Golden Triangle to the existing guide system.
+- Adds overlay rotation, mirroring, and interaction lock while keeping overlays preview-only by default.
+- Expands diagnostics with device, logical/physical IDs, arrays, every JPEG group, video/FPS, AF/AE/AWB, OIS/EIS, manual/RAW, zoom, request keys, and runtime errors.
+- Adds local Copy diagnostics and Export diagnostics as TXT actions with no network upload.
 
-## Camera resolutions and 48 MP
+## Camera resolutions and genuine 48 MP
 
-- Camera resolutions detected by this desktop build session: none; no Android camera was connected through ADB.
-- The supplied device screenshot shows this app previously receiving `4624 × 3472`, approximately `16.1 MP`, as an Android high-resolution JPEG.
-- Genuine 48 MP Android application output: UNVERIFIED on physical hardware.
-- Requested versus actual captured resolution on the target POCO: UNVERIFIED on physical hardware.
-- If Android exposes `8000 × 6000`, the selector displays `48 MP` and requests that exact output.
-- If Android exposes only `4624 × 3472`, the app displays approximately `16.1 MP`; it does not claim 48 MP.
-- A stock camera's Ultra HD mode can use a private OEM pipeline unavailable to third-party Camera2/CameraX applications. This build does not fabricate that access.
-- Runtime diagnostics record requested dimensions, bound CameraX dimensions, actual saved JPEG dimensions, and any mismatch separately.
+- Camera resolutions detected during this Windows build: none; no Android camera was connected through ADB.
+- Genuine 48 MP output exposed: UNVERIFIED on physical hardware.
+- Requested versus actual captured resolutions: UNVERIFIED on physical hardware.
+- If Android exposes an approximately 48-million-pixel JPEG stream, the app displays and requests that exact stream.
+- If Android exposes only a 12 MP or 16 MP JPEG stream, the app does not display 48 MP.
+- Diagnostics explain when a larger pixel array exists but the Camera HAL exposes only a lower application JPEG output.
 
-## Automated tests verified
+## Automated verification
 
-- 27 unit tests passed.
-- Megapixel calculation, resolution sorting/filtering, high/maximum-resolution selection, and no false 48 MP label.
-- Aspect-ratio calculations, preview crop mapping, front mirroring, JPEG rotation, rule-of-thirds coordinates, and golden-spiral bounds/transformations.
-- Horizon calculation, FPS validation, high-speed visibility, stabilization compatibility, mode conflict/fallback, camera layout policies, media names, and complete guide catalog.
-- Pro visibility follows manual-sensor support.
-- Documents mode retains a genuine still-photo capture path on manual and automatic-only cameras.
+- Megapixel calculation, aspect ratios, sorting, filtering, duplicate removal, and maximum-resolution selection.
+- Photo quality preset selection using real dimensions.
+- Video quality fallback ordering and stabilization capability mapping.
+- Golden spiral bounds/transformations, rule-of-thirds coordinates, preview crop mapping, and front mirroring.
+- Horizon calculations, FPS validation, high-speed visibility, mode conflicts, camera fallback, and adaptive layouts.
+- Complete 15-guide catalog coverage.
+- Media naming and capability-driven Pro/Documents visibility.
 
-## Physical-device testing required
+## Physical-device testing still required
 
-- Install and launch on the target POCO phone and tablet.
-- Verify portrait, landscape, reverse landscape, split screen, resize, cutout, and navigation inset behavior.
-- Verify `16.1 MP` remains selected and saves at the requested size after CameraX preview binding.
-- Verify whether the device exposes a genuine 48 MP JPEG through standard Android APIs.
-- Test Pro ISO, shutter, white balance, manual focus, EV, reset-to-auto, and capture on each eligible lens.
-- Test Documents framing and saved output.
-- Test rear/front switching, flash, screen flash, timer, focus, zoom, video/audio, lifecycle interruption, MediaStore indexing, viewer/share/delete, and guide gestures.
+- Camera enumeration and lens-role labels on the target phone and tablet.
+- Whether the device Camera HAL exposes 12 MP, 16 MP, 48 MP, or another maximum JPEG output.
+- Exact high/maximum-resolution capture, MediaStore indexing, EXIF orientation, and preview restoration.
+- Every reported video quality/FPS/stabilization combination and actual `CaptureResult` status.
+- Pro ISO, shutter, manual focus, white balance, EV, and zoom behavior.
+- Portrait, landscape, reverse landscape, split screen, cutout, and navigation-inset layouts.
+- Front camera mirroring, screen flash, video audio, timer, volume shutter, viewer, share, and delete.
 
 ## Remaining limitations
 
-- Physical camera behavior and OEM image quality cannot be certified without the device.
-- OEM-only Night, Ultra HD, constrained slow motion, portrait processing, panorama, and other private stock-camera pipelines remain unavailable unless Android exposes and the app implements a valid public session.
-- RAW export, histogram, time-lapse rendering, constrained high-speed recording, and automatic document edge detection are not implemented in this release and therefore are not shown as working modes.
-- `fullSensor` is honored by current Android phones, but Android 16 may ignore fixed orientation requests in some large-screen/multi-window contexts; the responsive Compose layout still adapts to the delivered window orientation.
-- A pre-existing `LocalClipboardManager` deprecation warning remains at Kotlin compile time.
+- Focus peaking, zebra, histogram, and RAW capture UI remain hidden because no verified processing/capture path was added; no decorative control claims support.
+- Codec, bitrate, HDR video, and per-quality/FPS stabilization matrices require encoder-profile and real-device session verification before they can be presented as supported.
+- Manufacturer stock camera apps may access private or privileged pipelines unavailable to third-party Camera2/CameraX apps.
+- The two compile warnings are upstream/deprecation notices for the CameraX quality query and Compose clipboard API; lint has no errors.
 
-## Git status
+## Git and shutdown status
 
-- Implementation commit: `0e30580` (`Fix high resolution rotation and add Pro document modes`)
-- Remote branch: `origin/agent/professional-composition-guides`
-- Pull request: `https://github.com/zak3123/aplikasi-kamera/pull/1`
-- Push result: SUCCESS
-- Working tree after the reporting commit: clean.
-
-## Shutdown
-
-- Exact command to run only after the commit, push, clean-status verification, and process check:
-
-```text
-shutdown.exe /s /f /t 120 /c "Adaptive Composition Camera development completed. The PC will shut down automatically."
-```
-
-- The command forcibly closes applications after 120 seconds and may discard unrelated unsaved work.
+- Intended final Git state after publication: clean branch `agent/professional-composition-guides`, pushed to `origin`.
+- Implementation commit: recorded in `BUILD_COMPLETION_STATUS.txt`.
+- Shutdown scheduled: NO. The current attached task did not request a shutdown action.

@@ -54,7 +54,11 @@ import com.fatih.adaptivecompositioncamera.domain.model.ForegroundZone
 import com.fatih.adaptivecompositioncamera.domain.model.GuideLineStyle
 import com.fatih.adaptivecompositioncamera.domain.model.GuideStyle
 import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoQualityPreset
 import com.fatih.adaptivecompositioncamera.domain.model.SpiralOrientation
+import com.fatih.adaptivecompositioncamera.domain.model.VideoFpsRange
+import com.fatih.adaptivecompositioncamera.domain.model.VideoQualitySetting
+import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
 
 @Composable
@@ -136,6 +140,9 @@ fun ResolutionSheet(
             it.width == maximum.width && it.height == maximum.height
         }
     }
+    val presets = PhotoQualityPreset.entries.filterNot { it == PhotoQualityPreset.Custom }
+        .mapNotNull { preset -> CameraMath.selectPhotoQuality(resolutions, preset)?.let { preset to it } }
+        .distinctBy { it.second.id }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("Photo resolution", style = MaterialTheme.typography.headlineSmall)
@@ -171,6 +178,36 @@ fun ResolutionSheet(
                     }
                 }
             }
+            Text(
+                "QUALITY PRESETS",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(vertical = 8.dp),
+            ) {
+                items(presets, key = { it.first.name }) { (preset, resolution) ->
+                    FilterChip(
+                        selected = selected?.id == resolution.id,
+                        onClick = { onSelect(resolution) },
+                        label = {
+                            Column {
+                                Text(preset.photoLabel())
+                                Text(
+                                    "${resolution.megapixelLabel} · ${resolution.width}×${resolution.height}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+            Text(
+                "CUSTOM RESOLUTION",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
             LazyColumn {
                 groups.forEach { (title, options) ->
                     item(key = "section:$title") {
@@ -204,6 +241,11 @@ fun ResolutionSheet(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                                Text(
+                                    "Estimated JPEG ${formatBytes(CameraMath.estimatedJpegBytes(resolution))}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                                 if (resolution.maximumSensorMode) {
                                     Text(
                                         "Full sensor only - slower capture - preview briefly restarts after saving",
@@ -234,6 +276,140 @@ private fun Badge(text: String) {
         Text(text, Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
     }
 }
+
+@Composable
+fun VideoSettingsSheet(
+    supportedQualities: List<VideoQualitySetting>,
+    selectedQuality: VideoQualitySetting,
+    fpsRanges: List<VideoFpsRange>,
+    selectedFpsRange: VideoFpsRange?,
+    stabilizationModes: List<VideoStabilizationMode>,
+    selectedStabilization: VideoStabilizationMode,
+    stabilizationStatus: String,
+    onQuality: (VideoQualitySetting) -> Unit,
+    onFps: (VideoFpsRange) -> Unit,
+    onStabilization: (VideoStabilizationMode) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Text("Video configuration", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Only CameraX qualities and Camera2 FPS/stabilization modes exposed by this lens are listed.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
+            )
+            Text("QUALITY", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                (listOf(VideoQualitySetting.Auto) + supportedQualities).distinct().forEach { quality ->
+                    FilterChip(
+                        selected = selectedQuality == quality,
+                        onClick = { onQuality(quality) },
+                        label = { Text(quality.videoLabel()) },
+                    )
+                }
+            }
+            if (supportedQualities.isEmpty()) {
+                Text("Waiting for CameraX quality discovery.", style = MaterialTheme.typography.bodySmall)
+            }
+            Text(
+                "FRAME RATE",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 14.dp),
+            )
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                fpsRanges.forEach { range ->
+                    FilterChip(
+                        selected = selectedFpsRange == range,
+                        onClick = { onFps(range) },
+                        label = { Text(range.label) },
+                    )
+                }
+            }
+            if (fpsRanges.isEmpty()) {
+                Text("Frame rate is camera-managed; no standard reported range can be selected.", style = MaterialTheme.typography.bodySmall)
+            }
+            Text(
+                "STABILIZATION",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 14.dp),
+            )
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                stabilizationModes.forEach { mode ->
+                    FilterChip(
+                        selected = selectedStabilization == mode,
+                        enabled = mode != VideoStabilizationMode.Unsupported,
+                        onClick = { onStabilization(mode) },
+                        label = { Text(mode.stabilizationLabel()) },
+                    )
+                }
+            }
+            Text(
+                stabilizationStatus,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (
+                selectedStabilization in listOf(
+                    VideoStabilizationMode.Standard,
+                    VideoStabilizationMode.Preview,
+                    VideoStabilizationMode.Auto,
+                )
+            ) {
+                Text(
+                    "Electronic stabilization may crop the field of view. Availability can change with quality and FPS.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            Button(onClick = onDismiss, modifier = Modifier.padding(top = 18.dp)) { Text("Done") }
+        }
+    }
+}
+
+private fun PhotoQualityPreset.photoLabel(): String = when (this) {
+    PhotoQualityPreset.Maximum -> "Maximum"
+    PhotoQualityPreset.High -> "High"
+    PhotoQualityPreset.Medium -> "Medium"
+    PhotoQualityPreset.StorageSaver -> "Storage saver"
+    PhotoQualityPreset.Custom -> "Custom"
+}
+
+private fun VideoQualitySetting.videoLabel(): String = when (this) {
+    VideoQualitySetting.Auto -> "Auto"
+    VideoQualitySetting.UHD -> "4K"
+    VideoQualitySetting.FHD -> "1080p"
+    VideoQualitySetting.HD -> "720p"
+    VideoQualitySetting.SD -> "480p"
+}
+
+private fun VideoStabilizationMode.stabilizationLabel(): String = when (this) {
+    VideoStabilizationMode.Off -> "Off"
+    VideoStabilizationMode.Standard -> "Standard EIS"
+    VideoStabilizationMode.Preview -> "Preview"
+    VideoStabilizationMode.Optical -> "Optical"
+    VideoStabilizationMode.Auto -> "Auto"
+    VideoStabilizationMode.Unsupported -> "Unsupported"
+}
+
+private fun formatBytes(bytes: Long): String =
+    if (bytes >= 1_048_576L) "${"%.1f".format(bytes / 1_048_576.0)} MB" else "${bytes / 1024} KB"
 
 @Composable
 fun CompositionSheet(
@@ -304,6 +480,29 @@ fun CompositionSheet(
                     selected = style.outline,
                     onClick = { onStyle(style.copy(outline = !style.outline)) },
                     label = { Text("Outline") },
+                )
+            }
+            Text("Orientation", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf(0, 90, 180, 270).forEach { degrees ->
+                    FilterChip(
+                        selected = style.overlayRotationDegrees == degrees,
+                        onClick = { onStyle(style.copy(overlayRotationDegrees = degrees)) },
+                        label = { Text("$degrees°") },
+                    )
+                }
+                FilterChip(
+                    selected = style.overlayMirrorHorizontal,
+                    onClick = { onStyle(style.copy(overlayMirrorHorizontal = !style.overlayMirrorHorizontal)) },
+                    label = { Text("Mirror") },
+                )
+                FilterChip(
+                    selected = style.overlayLocked,
+                    onClick = { onStyle(style.copy(overlayLocked = !style.overlayLocked)) },
+                    label = { Text(if (style.overlayLocked) "Locked" else "Lock") },
                 )
             }
             if (selected == CompositionGuide.GoldenSpiral) {
@@ -511,11 +710,15 @@ private fun GuideTile(
 internal val professionalGuideCatalog = listOf(
     CompositionGuide.None,
     CompositionGuide.RuleOfThirds,
+    CompositionGuide.LeadingLines,
+    CompositionGuide.VanishingPoint,
     CompositionGuide.GoldenRatio,
     CompositionGuide.GoldenSpiral,
-    CompositionGuide.VanishingPoint,
     CompositionGuide.FrameInFrame,
     CompositionGuide.Centered,
+    CompositionGuide.Symmetry,
+    CompositionGuide.Diagonal,
+    CompositionGuide.GoldenTriangle,
     CompositionGuide.TextureRepetition,
     CompositionGuide.Foreground,
     CompositionGuide.EyeLine,
@@ -623,11 +826,15 @@ private val guideColors = listOf(
 fun CompositionGuide.title(): String = when (this) {
     CompositionGuide.None -> "None"
     CompositionGuide.RuleOfThirds -> "Rule of Thirds"
+    CompositionGuide.LeadingLines -> "Leading Lines"
     CompositionGuide.VanishingPoint -> "Vanishing Point"
     CompositionGuide.GoldenRatio -> "Golden Ratio"
     CompositionGuide.GoldenSpiral -> "Golden Spiral"
     CompositionGuide.FrameInFrame -> "Frame in a Frame"
     CompositionGuide.Centered -> "Centered"
+    CompositionGuide.Symmetry -> "Symmetry"
+    CompositionGuide.Diagonal -> "Diagonal"
+    CompositionGuide.GoldenTriangle -> "Golden Triangle"
     CompositionGuide.TextureRepetition -> "Texture & Repetition"
     CompositionGuide.Foreground -> "Foreground"
     CompositionGuide.EyeLine -> "Eye Line"
@@ -637,11 +844,15 @@ fun CompositionGuide.title(): String = when (this) {
 private fun CompositionGuide.description(): String = when (this) {
     CompositionGuide.None -> "Unobstructed preview"
     CompositionGuide.RuleOfThirds -> "Balance subjects on thirds"
+    CompositionGuide.LeadingLines -> "Guide attention into the frame"
     CompositionGuide.VanishingPoint -> "Movable manual perspective"
     CompositionGuide.GoldenRatio -> "Phi-based alignment grid"
     CompositionGuide.GoldenSpiral -> "Golden rectangle arc sequence"
     CompositionGuide.FrameInFrame -> "Movable inner framing area"
     CompositionGuide.Centered -> "Symmetry and center target"
+    CompositionGuide.Symmetry -> "Mirror balance across the center"
+    CompositionGuide.Diagonal -> "Dynamic diagonal alignment"
+    CompositionGuide.GoldenTriangle -> "Diagonal golden-section balance"
     CompositionGuide.TextureRepetition -> "Manual repeating-pattern grid"
     CompositionGuide.Foreground -> "Separate foreground placement"
     CompositionGuide.EyeLine -> "Portrait and selfie eye line"

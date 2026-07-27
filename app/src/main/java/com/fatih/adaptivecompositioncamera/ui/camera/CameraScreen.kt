@@ -127,6 +127,10 @@ import com.fatih.adaptivecompositioncamera.domain.model.LevelReading
 import com.fatih.adaptivecompositioncamera.domain.model.MediaItem
 import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
 import com.fatih.adaptivecompositioncamera.domain.model.RuntimeCameraInfo
+import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
+import com.fatih.adaptivecompositioncamera.domain.model.VideoFpsRange
+import com.fatih.adaptivecompositioncamera.domain.model.VideoQualitySetting
+import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
 import com.fatih.adaptivecompositioncamera.media.AndroidMediaRepository
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
 import kotlin.math.abs
@@ -178,7 +182,9 @@ fun CameraScreen(
     val density = LocalDensity.current
 
     val availableCameras = remember(report) {
-        report?.cameras.orEmpty().filter { it.supportsBackwardCompatible && it.jpegResolutions.isNotEmpty() }
+        report?.cameras.orEmpty().filter {
+            it.isOpenable && it.supportsBackwardCompatible && it.jpegResolutions.isNotEmpty()
+        }
     }
     val availableFacings = remember(availableCameras) { availableCameras.map { it.lensFacing }.toSet() }
     var activeCameraId by remember { mutableStateOf<String?>(null) }
@@ -207,12 +213,39 @@ fun CameraScreen(
     val isFront = lensFacing == LensFacing.Front
     val mirrorPreview = isFront && settings.mirrorFrontPreview
     val sessionState by runtime.state.collectAsState()
+    val stabilizationStatus by runtime.stabilizationStatus.collectAsState()
+    val videoFpsOptions = remember(activeCapability) {
+        activeCapability?.fpsRangeValues.orEmpty()
+            .filter { it.max in setOf(24, 25, 30, 50, 60, 120) }
+            .distinctBy { it.max }
+            .sortedBy { it.max }
+    }
+    val videoStabilizationOptions = remember(activeCapability) {
+        activeCapability?.stabilization?.let(CameraMath::stabilizationModes)
+            ?: listOf(VideoStabilizationMode.Unsupported)
+    }
 
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     var captureViewportSize by remember { mutableStateOf(IntSize.Zero) }
     var cameraRebindToken by remember { mutableIntStateOf(0) }
     var runtimeInfo by remember { mutableStateOf(RuntimeCameraInfo()) }
+    var videoQuality by remember(activeCameraId) { mutableStateOf(VideoQualitySetting.Auto) }
+    var videoFpsRange by remember(activeCameraId) {
+        mutableStateOf(
+            videoFpsOptions.firstOrNull { it.max == 30 }
+                ?: videoFpsOptions.lastOrNull(),
+        )
+    }
+    var videoStabilization by remember(activeCameraId) {
+        mutableStateOf(
+            if (videoStabilizationOptions.any { it != VideoStabilizationMode.Unsupported }) {
+                VideoStabilizationMode.Auto
+            } else {
+                VideoStabilizationMode.Unsupported
+            },
+        )
+    }
     var flashMode by remember { mutableStateOf(FlashMode.Off) }
     var timerSeconds by remember { mutableIntStateOf(0) }
     var countdown by remember { mutableIntStateOf(0) }
@@ -264,6 +297,7 @@ fun CameraScreen(
     var showAspectSheet by remember { mutableStateOf(false) }
     var showCompositionSheet by remember { mutableStateOf(false) }
     var showMoreSheet by remember { mutableStateOf(false) }
+    var showVideoSettingsSheet by remember { mutableStateOf(false) }
     var guideStyle by remember { mutableStateOf(GuideStyle()) }
     var vanishingPoint by remember { mutableStateOf(Offset(0.5f, 0.45f)) }
     var frameBounds by remember { mutableStateOf(Rect(0.18f, 0.20f, 0.82f, 0.80f)) }
@@ -282,7 +316,7 @@ fun CameraScreen(
         val current = availableCameras.firstOrNull { it.cameraId == activeCameraId }
         val preferred = availableCameras.sortedWith(
             compareBy<CameraCapability> { if (it.lensFacing == LensFacing.Rear) 0 else 1 }
-                .thenBy { if (it.lensRole == com.fatih.adaptivecompositioncamera.domain.model.LensRole.Main) 0 else 1 },
+                .thenBy { if (it.lensRole in listOf(LensRole.Wide, LensRole.Main)) 0 else 1 },
         ).firstOrNull()
         val resolved = persisted ?: current ?: preferred
         if (resolved != null && resolved.cameraId != activeCameraId) activeCameraId = resolved.cameraId
@@ -307,6 +341,18 @@ fun CameraScreen(
                     onMessage("High-resolution capture uses the full exposed JPEG output. Crops are disabled for this mode.")
                 }
             }
+        }
+    }
+    LaunchedEffect(activeCameraId, videoFpsOptions, videoStabilizationOptions) {
+        if (videoFpsRange !in videoFpsOptions) {
+            videoFpsRange = videoFpsOptions.firstOrNull { it.max == 30 } ?: videoFpsOptions.lastOrNull()
+        }
+        if (
+            videoStabilization !in videoStabilizationOptions &&
+            videoStabilization != VideoStabilizationMode.Auto
+        ) {
+            videoStabilization = videoStabilizationOptions.firstOrNull()
+                ?: VideoStabilizationMode.Unsupported
         }
     }
     LaunchedEffect(
@@ -386,6 +432,9 @@ fun CameraScreen(
         settings.matchPreviewCrop,
         configuration.orientation,
         cameraRebindToken,
+        videoQuality,
+        videoFpsRange,
+        videoStabilization,
     ) {
         val view = previewView ?: return@LaunchedEffect
         if (previewSize.width <= 0 || previewSize.height <= 0) return@LaunchedEffect
@@ -406,6 +455,11 @@ fun CameraScreen(
             viewportHeight = viewport.height,
             targetRotation = localView.display?.rotation ?: AndroidSurface.ROTATION_0,
             matchPreviewCrop = settings.matchPreviewCrop,
+            videoQuality = videoQuality,
+            videoFpsRange = videoFpsRange,
+            videoStabilization = videoStabilization,
+            stabilizationSupport = activeCapability?.stabilization
+                ?: StabilizationSupport(false, false, false),
             onBound = {
                 runtimeInfo = it
                 if (!dedicatedHighResolution) {
@@ -449,6 +503,7 @@ fun CameraScreen(
         actualSavedResolution,
         configurationMismatch,
         effectivePhotoAspect,
+        stabilizationStatus,
     ) {
         onDiagnosticsChange(
             CameraDiagnostics(
@@ -470,8 +525,12 @@ fun CameraScreen(
                 configurationMismatch = configurationMismatch,
                 previewResolution = runtimeInfo.previewWidth.takeIf { it > 0 }
                     ?.let { width -> "$width × ${runtimeInfo.previewHeight}" },
-                currentFps = activeCapability?.fpsRanges?.joinToString(limit = 3),
-                stabilization = "Camera-managed",
+                currentFps = runtimeInfo.requestedFpsRange?.label
+                    ?: activeCapability?.fpsRanges?.joinToString(limit = 3),
+                stabilization = stabilizationStatus,
+                requestedVideoQuality = runtimeInfo.selectedVideoQuality.name,
+                supportedVideoQualities = runtimeInfo.supportedVideoQualities.joinToString { it.name },
+                requestedFps = runtimeInfo.requestedFpsRange?.label,
                 extension = activeCapability?.extensions?.activeLabel() ?: "None",
                 lastCameraError = lastCameraError,
                 lastCaptureError = lastCaptureError,
@@ -588,7 +647,17 @@ fun CameraScreen(
                     }
                     .onFailure {
                         lastCaptureError = it.message ?: "Photo capture failed."
-                        onMessage(lastCaptureError!!)
+                        if (dedicatedHighResolution) {
+                            activeCapability?.normalMaximumResolution?.let { fallback ->
+                                selectedResolution = fallback
+                                onResolutionChange(activeCapability.cameraId, fallback.id)
+                                onModeChange(CameraMode.Photo)
+                                configurationMismatch =
+                                    "High-resolution capture failed: $lastCaptureError. " +
+                                        "Restored ${fallback.width} x ${fallback.height} (${fallback.megapixelLabel})."
+                            }
+                        }
+                        onMessage(configurationMismatch ?: lastCaptureError!!)
                     }
             } finally {
                 if (dedicatedHighResolution) cameraRebindToken++
@@ -755,16 +824,18 @@ fun CameraScreen(
                     DocumentGuideOverlay(Modifier.fillMaxSize())
                 }
 
-                InteractiveGuideLayer(
-                    guide = settings.guide,
-                    vanishingPoint = vanishingPoint,
-                    frameBounds = frameBounds,
-                    eyeLineFraction = eyeLineFraction,
-                    onVanishingPoint = { vanishingPoint = it },
-                    onFrameBounds = { frameBounds = it },
-                    onEyeLine = { eyeLineFraction = it },
-                    modifier = Modifier.fillMaxSize(),
-                )
+                if (!guideStyle.overlayLocked) {
+                    InteractiveGuideLayer(
+                        guide = settings.guide,
+                        vanishingPoint = vanishingPoint,
+                        frameBounds = frameBounds,
+                        eyeLineFraction = eyeLineFraction,
+                        onVanishingPoint = { vanishingPoint = it },
+                        onFrameBounds = { frameBounds = it },
+                        onEyeLine = { eyeLineFraction = it },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
 
             focusPoint?.let { point -> FocusIndicator(point, Modifier.fillMaxSize()) }
@@ -798,26 +869,28 @@ fun CameraScreen(
                 },
                 timerSeconds = timerSeconds,
                 onTimer = { timerSeconds = timerSeconds.nextTimer() },
-                aspectRatioLabel = if (settings.mode == CameraMode.Video && runtimeInfo.videoWidth > 0) {
-                    CameraMath.aspectRatioLabel(runtimeInfo.videoWidth, runtimeInfo.videoHeight)
+                aspectRatioLabel = if (settings.mode == CameraMode.Video) {
+                    runtimeInfo.requestedFpsRange?.let { "${it.max} FPS" } ?: "FPS"
                 } else effectivePhotoAspect.shortLabel(),
                 resolutionLabel = if (settings.mode == CameraMode.Video) {
-                    videoQualityLabel(runtimeInfo.videoWidth, runtimeInfo.videoHeight)
+                    runtimeInfo.selectedVideoQuality.displayLabel()
                 } else if (configurationMismatch != null) {
                     actualSavedResolution?.substringAfter('(')?.substringBefore(')') ?: estimatedOutputLabel
                 } else estimatedOutputLabel,
                 onAspectRatio = {
                     if (settings.mode == CameraMode.Video) {
-                        onMessage("Video aspect ratio follows the active CameraX video stream.")
+                        showVideoSettingsSheet = true
                     } else if (dedicatedHighResolution) {
                         onMessage("High-resolution capture always saves the full Android-exposed JPEG output.")
                     } else if (resolutions.isNotEmpty()) showAspectSheet = true
                 },
                 onResolution = {
                     if (settings.mode == CameraMode.Video) {
-                        onMessage("Video quality follows a CameraX stream accepted by this camera.")
+                        showVideoSettingsSheet = true
                     } else if (resolutions.isNotEmpty()) showResolutionSheet = true
                 },
+                videoStatusLabel = if (settings.mode == CameraMode.Video) videoStabilization.shortLabel() else null,
+                onVideoStatus = { showVideoSettingsSheet = true },
                 compositionActive = settings.guide != CompositionGuide.None,
                 onComposition = { showCompositionSheet = true },
                 onSettings = onOpenSettings,
@@ -995,6 +1068,21 @@ fun CameraScreen(
             viewportHeight = previewSize.height,
             onSelect = onAspectRatioChange,
             onDismiss = { showAspectSheet = false },
+        )
+    }
+    if (showVideoSettingsSheet) {
+        VideoSettingsSheet(
+            supportedQualities = runtimeInfo.supportedVideoQualities,
+            selectedQuality = videoQuality,
+            fpsRanges = videoFpsOptions,
+            selectedFpsRange = videoFpsRange,
+            stabilizationModes = videoStabilizationOptions,
+            selectedStabilization = videoStabilization,
+            stabilizationStatus = stabilizationStatus,
+            onQuality = { videoQuality = it },
+            onFps = { videoFpsRange = it },
+            onStabilization = { videoStabilization = it },
+            onDismiss = { showVideoSettingsSheet = false },
         )
     }
     if (showCompositionSheet) {
@@ -1348,6 +1436,8 @@ private fun CameraTopBar(
     resolutionLabel: String?,
     onAspectRatio: () -> Unit,
     onResolution: () -> Unit,
+    videoStatusLabel: String?,
+    onVideoStatus: () -> Unit,
     compositionActive: Boolean,
     onComposition: () -> Unit,
     onSettings: () -> Unit,
@@ -1378,6 +1468,15 @@ private fun CameraTopBar(
             TopControl(Icons.Rounded.Timer, "Self timer", if (timerSeconds == 0) null else "${timerSeconds}s", onTimer)
             TopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio)
             TopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution)
+            if (videoStatusLabel != null) {
+                TopControl(
+                    Icons.Rounded.CameraAlt,
+                    "Video stabilization",
+                    videoStatusLabel,
+                    onVideoStatus,
+                    active = videoStatusLabel != "OFF" && videoStatusLabel != "N/A",
+                )
+            }
             TopControl(
                 Icons.Rounded.GridOn,
                 "Composition guides",
@@ -1879,7 +1978,7 @@ private fun PermissionPrompt(modifier: Modifier, requestCameraPermission: () -> 
 private fun preferredCamera(cameras: List<CameraCapability>, facing: LensFacing): CameraCapability? =
     cameras.filter { it.lensFacing == facing }.minByOrNull {
         when (it.lensRole) {
-            LensRole.Main, LensRole.Selfie -> 0
+            LensRole.Main, LensRole.Wide, LensRole.Selfie -> 0
             LensRole.Unknown -> 1
             else -> 2
         }
@@ -1889,7 +1988,7 @@ private fun CameraCapability.lensSelectorLabel(cameras: List<CameraCapability>):
     val facingCameras = cameras.filter { it.lensFacing == lensFacing }
     val position = facingCameras.indexOfFirst { it.cameraId == cameraId }.coerceAtLeast(0) + 1
     return when (lensRole) {
-        LensRole.Main -> "Main"
+        LensRole.Main, LensRole.Wide -> "1x"
         LensRole.Ultrawide -> "Ultra"
         LensRole.Telephoto -> "Tele"
         LensRole.Macro -> "Macro"
@@ -1937,6 +2036,23 @@ private fun videoQualityLabel(width: Int, height: Int): String = when {
     width >= 1_920 || height >= 1_080 -> "1080p"
     width >= 1_280 || height >= 720 -> "720p"
     else -> "${minOf(width, height)}p"
+}
+
+private fun VideoQualitySetting.displayLabel(): String = when (this) {
+    VideoQualitySetting.Auto -> "Auto"
+    VideoQualitySetting.UHD -> "4K"
+    VideoQualitySetting.FHD -> "1080p"
+    VideoQualitySetting.HD -> "720p"
+    VideoQualitySetting.SD -> "480p"
+}
+
+private fun VideoStabilizationMode.shortLabel(): String = when (this) {
+    VideoStabilizationMode.Off -> "OFF"
+    VideoStabilizationMode.Standard -> "EIS"
+    VideoStabilizationMode.Preview -> "PRE"
+    VideoStabilizationMode.Optical -> "OIS"
+    VideoStabilizationMode.Auto -> "AUTO"
+    VideoStabilizationMode.Unsupported -> "N/A"
 }
 
 private fun PhotoAspectRatio.shortLabel(): String = when (this) {

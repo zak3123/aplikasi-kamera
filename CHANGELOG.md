@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+- Scan Android-exposed logical cameras and their physical-camera metadata without treating physical-only IDs as selectable lenses.
+- Report complete normal, high-resolution, and API 31+ maximum-resolution JPEG outputs plus AF, AE, AWB, zoom, FPS, OIS, EIS, and capture-request metadata.
+- Add real photo quality presets derived only from exposed output dimensions.
+- Add CameraX video quality, Camera2 FPS-range, and dynamic stabilization controls; verify OIS/EIS/preview stabilization from capture results.
+- Add leading-lines, symmetry, diagonal, and golden-triangle overlays plus rotate, mirror, and lock controls.
+- Add local diagnostics copy and TXT export.
+- Apply sensor frame duration with manual ISO/shutter requests.
+
 ## 0.5.0
 
 - Reworked the camera chrome again with smaller transparent quick controls, a thinner portrait gradient, a 164 dp landscape rail, and a stock-camera-style selected mode indicator.

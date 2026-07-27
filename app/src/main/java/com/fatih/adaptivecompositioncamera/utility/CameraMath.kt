@@ -2,7 +2,11 @@ package com.fatih.adaptivecompositioncamera.utility
 
 import android.util.Size
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoQualityPreset
 import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
+import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
+import com.fatih.adaptivecompositioncamera.domain.model.VideoQualitySetting
+import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.round
@@ -69,6 +73,64 @@ object CameraMath {
         if (targetWidth <= 0 || targetHeight <= 0) return emptyList()
         val target = targetWidth.toFloat() / targetHeight
         return resolutions.filter { abs(it.width.toFloat() / it.height - target) <= tolerance }
+    }
+
+    fun selectPhotoQuality(
+        resolutions: List<CameraResolution>,
+        preset: PhotoQualityPreset,
+    ): CameraResolution? {
+        if (resolutions.isEmpty() || preset == PhotoQualityPreset.Custom) return null
+        val sorted = resolutions.distinctBy { "${it.width}:${it.height}:${it.format}" }
+            .sortedByDescending { it.width.toLong() * it.height }
+        if (preset == PhotoQualityPreset.Maximum) return sorted.first()
+        val target = when (preset) {
+            PhotoQualityPreset.High -> 14.0
+            PhotoQualityPreset.Medium -> 8.0
+            PhotoQualityPreset.StorageSaver -> 4.0
+            else -> return sorted.first()
+        }
+        val preferredRange = when (preset) {
+            PhotoQualityPreset.High -> 10.0..18.0
+            PhotoQualityPreset.Medium -> 6.0..10.0
+            PhotoQualityPreset.StorageSaver -> 2.5..5.5
+            else -> 0.0..Double.MAX_VALUE
+        }
+        val normalOutputs = sorted.filterNot { it.maximumSensorMode || it.highResolution }
+        return normalOutputs.filter { it.megapixels in preferredRange }
+            .minByOrNull { abs(it.megapixels - target) }
+            ?: normalOutputs.minByOrNull { abs(it.megapixels - target) }
+            ?: sorted.minByOrNull { abs(it.megapixels - target) }
+    }
+
+    fun estimatedJpegBytes(resolution: CameraResolution): Long =
+        (resolution.width.toLong() * resolution.height * 0.35).toLong()
+
+    fun stabilizationModes(support: StabilizationSupport): List<VideoStabilizationMode> {
+        if (!support.electronicVideo && !support.preview && !support.optical) {
+            return listOf(VideoStabilizationMode.Unsupported)
+        }
+        return buildList {
+            add(VideoStabilizationMode.Off)
+            if (support.electronicVideo) add(VideoStabilizationMode.Standard)
+            if (support.preview) add(VideoStabilizationMode.Preview)
+            if (support.optical) add(VideoStabilizationMode.Optical)
+            add(VideoStabilizationMode.Auto)
+        }
+    }
+
+    fun videoFallbackOrder(
+        requested: VideoQualitySetting,
+        supported: List<VideoQualitySetting>,
+    ): List<VideoQualitySetting> {
+        val priority = listOf(
+            VideoQualitySetting.UHD,
+            VideoQualitySetting.FHD,
+            VideoQualitySetting.HD,
+            VideoQualitySetting.SD,
+        )
+        if (requested == VideoQualitySetting.Auto) return priority.filter { it in supported }
+        val requestedIndex = priority.indexOf(requested)
+        return priority.drop(requestedIndex.coerceAtLeast(0)).filter { it in supported }
     }
 
     fun ruleOfThirds(width: Float, height: Float): List<FloatPoint> = listOf(
