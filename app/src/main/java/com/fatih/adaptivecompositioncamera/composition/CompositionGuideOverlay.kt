@@ -282,17 +282,22 @@ private fun DrawScope.drawGoldenSpiral(
         scale(if (flipX) -1f else 1f, if (flipY) -1f else 1f, pivot)
     }) {
         clipRect(fitted.left, fitted.top, fitted.right, fitted.bottom) {
-            guideRect(Rect(fitted.left, fitted.top, fitted.right, fitted.bottom), color.copy(alpha = color.alpha * 0.45f), stroke, style.outline)
-            arcs.forEach { arc ->
-                guideRect(
-                    Rect(arc.square.left, arc.square.top, arc.square.right, arc.square.bottom),
-                    color.copy(alpha = color.alpha * 0.32f),
-                    Stroke(width = stroke.width * 0.75f, pathEffect = stroke.pathEffect),
-                    false,
+            val subtleStroke = Stroke(width = minOf(stroke.width, 1.dp.toPx()), pathEffect = stroke.pathEffect)
+            val spiralStroke = Stroke(width = minOf(stroke.width, 1.4.dp.toPx()), pathEffect = stroke.pathEffect)
+            guideRect(
+                Rect(fitted.left, fitted.top, fitted.right, fitted.bottom),
+                color.copy(alpha = color.alpha * 0.20f),
+                subtleStroke,
+                false,
+            )
+            if (style.outline) {
+                drawPath(
+                    path,
+                    Color.Black.copy(alpha = 0.42f),
+                    style = Stroke(width = spiralStroke.width + 1.4.dp.toPx(), pathEffect = stroke.pathEffect),
                 )
             }
-            if (style.outline) drawPath(path, Color.Black.copy(alpha = 0.68f), style = Stroke(width = stroke.width + 2.2.dp.toPx(), pathEffect = stroke.pathEffect))
-            drawPath(path, color, style = stroke)
+            drawPath(path, color.copy(alpha = color.alpha * 0.78f), style = spiralStroke)
         }
     }
 }

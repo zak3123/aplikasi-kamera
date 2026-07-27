@@ -1,47 +1,55 @@
 # Camera Resolution Audit
 
+Completion time: 2026-07-27 20:05:11 +07:00
+
 ## Scope
 
 - Project: `D:\aplikasi-kamera`
-- Version: `0.5.0` (`versionCode` 6)
-- Audit date: 2026-07-24 (Asia/Jakarta)
-- Physical device connected during final validation: No
+- Version: `0.7.0` (`versionCode` 9)
+- Physical device connected during this run: No
 
 ## Static pipeline findings
 
-- Camera discovery starts from `CameraManager.cameraIdList`; it does not assume that camera ID `0` is the main rear camera.
+- Camera discovery starts from `CameraManager.cameraIdList`; it does not assume camera ID `0` is the main rear camera.
 - Normal JPEG outputs are read from `SCALER_STREAM_CONFIGURATION_MAP`.
-- Slower CameraX-selectable high-resolution JPEG outputs are read from `getHighResolutionOutputSizes(JPEG)`.
-- On Android 12/API 31 and newer, maximum-resolution JPEG outputs are also read from `SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION`.
-- HEIC/HEIF, RAW, YUV, video sizes, normal FPS ranges, high-speed configurations, sensor arrays, lens metadata, stabilization, manual sensor, RAW, burst, logical-camera and physical-camera metadata are queried defensively.
-- Megapixels are calculated from output dimensions (`width * height / 1,000,000`), never from advertised sensor marketing data.
-- Native selected capture resolution, estimated aspect crop, CameraX-bound capture resolution, and actual saved JPEG dimensions are separate diagnostics.
-- Saved-image dimensions are read from encoded media metadata without decoding the full-resolution bitmap.
-- A CameraX high-resolution request uses `getHighResolutionOutputSizes()`, higher-resolution allowed mode, maximum-quality capture, and an exact resolution strategy. Invalid configurations restore a safe Photo configuration.
-- API 31+ maximum-sensor-map outputs are reported separately and are not presented as working CameraX choices.
+- Camera2 high-resolution JPEG outputs are read from `getHighResolutionOutputSizes(ImageFormat.JPEG)`.
+- Android 12/API 31+ maximum-resolution outputs are queried from `SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION` when the device exposes the required keys/capability.
+- HEIC/HEIF, RAW, YUV, video sizes, FPS ranges, high-speed configurations, active/sensor arrays, physical camera IDs, focal lengths, stabilization, manual sensor, RAW, burst, and hardware level are queried defensively.
+- Megapixels are calculated from actual output dimensions: `width * height / 1,000,000`.
+- Native selected resolution, output crop, CameraX-bound resolution, and actual saved JPEG dimensions are tracked separately.
+- Saved-image dimensions are read from encoded media metadata without decoding a full-resolution bitmap.
 
-## Why screenshots showed 12.1 MP or 2.8 MP
+## Friendly aspect ratios
 
-The supplied screenshots are evidence of runtime values from a physical test device, but that device is not currently connected. The older `12.1 MP` display could represent the selected/bound third-party output rather than the advertised sensor maximum. The later `2.8 MP - 1920 x 1440` display is consistent with CameraX accepting a lower bound capture stream and the UI reporting that accepted stream. It is not evidence that the sensor itself is only 2.8 MP.
+The user-facing resolution UI now classifies near-common camera ratios with tolerance:
 
-Version 0.5.0 records requested, bound, cropped, and actual saved-file resolution separately, and reports a mismatch rather than silently presenting a requested value as captured. A definitive device conclusion still requires exporting Camera information and inspecting an actual JPEG from that same camera ID.
+- `4624 x 3472` displays as `4:3`, not `289:217`.
+- `4624 x 2080` displays as `20:9`, not `289:130`.
+- `3840 x 2160` displays as `16:9`.
+- `3472 x 3472` displays as `1:1`.
+
+Exact pixel dimensions are still displayed beside the friendly ratio.
+
+## 48 MP investigation status
+
+No Android device was connected through ADB in this run, so genuine 48 MP exposure could not be verified physically.
+
+The app must show 48 MP only when Android exposes a matching JPEG, high-resolution JPEG, or validated maximum-resolution Camera2 output. It must not rename a 16.1 MP or 12.1 MP stream as 48 MP.
 
 ## Device-specific results
 
-- Device model: Unverified (no connected ADB device)
+- Device model: Unverified
 - Android version: Unverified
-- Camera IDs and selected physical lens: Unverified
-- Maximum exposed normal JPEG: Unverified
-- Maximum-resolution stream-map JPEG: Unverified
-- Requested resolution: Unverified on the current machine
-- Bound resolution: Unverified on the current machine
-- Actual JPEG resolution and megapixels: Unverified on the current machine
-- Native versus cropped output: Unverified on the current machine
+- Camera IDs: Unverified
+- Maximum normal JPEG: Unverified
+- High-resolution JPEG: Unverified
+- Maximum-resolution sensor map: Unverified
+- Requested capture size: Unverified on physical hardware
+- Bound CameraX size: Unverified on physical hardware
+- Actual saved JPEG size: Unverified on physical hardware
 - Genuine 48 MP exposed: Unverified
 - Genuine 48 MP captured: Unverified
 
-The app does not fabricate a 48 MP choice when Android exposes only a lower JPEG output.
-
 ## Required physical verification
 
-Connect the POCO phone or tablet with USB debugging, open **Settings > Camera information**, export the capability report, capture one recommended native photo and one maximum-resolution photo when offered, then compare requested, bound, and actual dimensions in **Settings > Diagnostics** and the media viewer.
+Connect the target phone or tablet with USB debugging, open Settings > Camera information, export the capability report, capture one recommended photo and one maximum-resolution photo if offered, then compare requested, bound, and actual saved dimensions in Settings > Diagnostics and in the media viewer.

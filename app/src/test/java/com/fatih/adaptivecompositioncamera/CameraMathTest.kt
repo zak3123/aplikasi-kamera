@@ -71,9 +71,12 @@ class CameraMathTest {
     }
 
     @Test
-    fun aspectRatioUsesReducedIntegerForm() {
+    fun aspectRatioUsesFriendlyCameraLabels() {
         assertEquals("4:3", CameraMath.aspectRatioLabel(4000, 3000))
+        assertEquals("4:3", CameraMath.aspectRatioLabel(4624, 3472))
+        assertEquals("20:9", CameraMath.aspectRatioLabel(4624, 2080))
         assertEquals("16:9", CameraMath.aspectRatioLabel(3840, 2160))
+        assertEquals("16:9", CameraMath.aspectRatioLabel(3264, 1836))
         assertEquals("1:1", CameraMath.aspectRatioLabel(3000, 3000))
     }
 
@@ -288,7 +291,7 @@ class CameraMathTest {
     @Test
     fun stockCameraChromeStaysWithinCompactPhoneGuidance() {
         val landscape = cameraUiLayoutPolicy(AdaptiveLayout.PhoneLandscape)
-        assertEquals(140f, landscape.captureRailWidth.value, 0f)
+        assertEquals(132f, landscape.captureRailWidth.value, 0f)
         assertTrue(landscape.captureRailWidth.value <= 800f * 0.22f)
         assertTrue(CameraUiTokens.portraitControlsHeight.value <= 200f)
         assertTrue(CameraUiTokens.shutterOuterSize.value in 72f..84f)

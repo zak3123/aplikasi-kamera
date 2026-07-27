@@ -1443,49 +1443,43 @@ private fun CameraTopBar(
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier,
-        color = Color.Black.copy(alpha = 0.34f),
-        shape = RoundedCornerShape(28.dp),
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(0.dp),
-        ) {
-            if (hasFlash) {
-                TopControl(
-                    icon = when (flashMode) {
-                        FlashMode.Off -> Icons.Rounded.FlashOff
-                        FlashMode.Auto -> Icons.Rounded.FlashAuto
-                        FlashMode.On, FlashMode.Torch -> Icons.Rounded.FlashOn
-                    },
-                    description = "Flash ${flashMode.name}",
-                    label = flashMode.takeUnless { it == FlashMode.Off }?.name,
-                    onClick = onFlash,
-                )
-            }
-            TopControl(Icons.Rounded.Timer, "Self timer", if (timerSeconds == 0) null else "${timerSeconds}s", onTimer)
-            TopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio)
-            TopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution)
-            if (videoStatusLabel != null) {
-                TopControl(
-                    Icons.Rounded.CameraAlt,
-                    "Video stabilization",
-                    videoStatusLabel,
-                    onVideoStatus,
-                    active = videoStatusLabel != "OFF" && videoStatusLabel != "N/A",
-                )
-            }
+        if (hasFlash) {
             TopControl(
-                Icons.Rounded.GridOn,
-                "Composition guides",
-                null,
-                onComposition,
-                active = compositionActive,
+                icon = when (flashMode) {
+                    FlashMode.Off -> Icons.Rounded.FlashOff
+                    FlashMode.Auto -> Icons.Rounded.FlashAuto
+                    FlashMode.On, FlashMode.Torch -> Icons.Rounded.FlashOn
+                },
+                description = "Flash ${flashMode.name}",
+                label = flashMode.takeUnless { it == FlashMode.Off }?.name,
+                onClick = onFlash,
             )
-            TopControl(Icons.Rounded.Settings, "Settings", null, onSettings)
         }
+        TopControl(Icons.Rounded.Timer, "Self timer", if (timerSeconds == 0) null else "${timerSeconds}s", onTimer)
+        TopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio)
+        TopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution)
+        if (videoStatusLabel != null) {
+            TopControl(
+                Icons.Rounded.CameraAlt,
+                "Video stabilization",
+                videoStatusLabel,
+                onVideoStatus,
+                active = videoStatusLabel != "OFF" && videoStatusLabel != "N/A",
+            )
+        }
+        TopControl(
+            Icons.Rounded.GridOn,
+            "Composition guides",
+            null,
+            onComposition,
+            active = compositionActive,
+        )
+        TopControl(Icons.Rounded.Settings, "Settings", null, onSettings)
     }
 }
 
@@ -1497,7 +1491,7 @@ private fun TopControl(
     onClick: () -> Unit,
     active: Boolean = false,
 ) {
-    Column(Modifier.width(50.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.width(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
                 .size(CameraUiTokens.minimumTouchTarget)
@@ -1512,8 +1506,8 @@ private fun TopControl(
                     .background(
                         when {
                             active -> Color(0xFFFFD166)
-                            label != null -> Color.Black.copy(alpha = 0.28f)
-                            else -> Color.Transparent
+                            label != null -> Color.Black.copy(alpha = 0.34f)
+                            else -> Color.Black.copy(alpha = 0.22f)
                         },
                     ),
                 contentAlignment = Alignment.Center,

@@ -3,6 +3,7 @@
 package com.fatih.adaptivecompositioncamera.ui.camera
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -130,27 +131,24 @@ fun ResolutionSheet(
     onDismiss: () -> Unit,
 ) {
     val groups = listOf(
-        "Maximum sensor" to resolutions.filter { it.maximumSensorMode },
-        "High resolution" to resolutions.filter { it.highResolution && !it.maximumSensorMode },
+        "Maximum available" to resolutions.filter { it.maximumSensorMode || it.highResolution },
         "Recommended" to resolutions.filter { it.recommended && !it.highResolution && !it.maximumSensorMode },
-        "Standard" to resolutions.filterNot { it.highResolution || it.recommended || it.maximumSensorMode },
+        "Other" to resolutions.filterNot { it.highResolution || it.recommended || it.maximumSensorMode },
     ).filter { it.second.isNotEmpty() }
     val unavailableMaximum = reportedMaximum?.takeIf { maximum ->
         maximum.maximumSensorMode && resolutions.none {
             it.width == maximum.width && it.height == maximum.height
         }
     }
-    val presets = PhotoQualityPreset.entries.filterNot { it == PhotoQualityPreset.Custom }
-        .mapNotNull { preset -> CameraMath.selectPhotoQuality(resolutions, preset)?.let { preset to it } }
-        .distinctBy { it.second.id }
+    val presets = emptyList<Pair<PhotoQualityPreset, CameraResolution>>()
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("Photo resolution", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Every option comes from Android camera capabilities. High-resolution output uses a dedicated Camera2 still-capture session when required.",
+                "Only real Android camera outputs are shown.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
+                modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
             )
             if (unavailableMaximum != null) {
                 Surface(
@@ -178,6 +176,7 @@ fun ResolutionSheet(
                     }
                 }
             }
+            if (presets.isNotEmpty()) {
             Text(
                 "QUALITY PRESETS",
                 style = MaterialTheme.typography.labelMedium,
@@ -208,6 +207,7 @@ fun ResolutionSheet(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
+            }
             LazyColumn {
                 groups.forEach { (title, options) ->
                     item(key = "section:$title") {
@@ -226,47 +226,53 @@ fun ResolutionSheet(
                             }.padding(vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            SelectionDot(selected?.id == resolution.id)
                             Column(Modifier.weight(1f)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(resolution.megapixelLabel, style = MaterialTheme.typography.titleMedium)
                                     when {
-                                        resolution.maximumSensorMode -> Badge("Maximum sensor")
-                                        resolution.highResolution -> Badge("High resolution")
+                                        resolution.maximumSensorMode || resolution.highResolution -> Badge("Maximum")
                                         resolution.recommended -> Badge("Recommended")
-                                        resolution.maximum -> Badge("Maximum")
+                                        resolution.maximum -> Badge("Largest")
                                     }
                                 }
                                 Text(
-                                    "${resolution.width} x ${resolution.height}  |  ${resolution.aspectRatioLabel}  |  ${resolution.format}",
+                                    "${resolution.width} x ${resolution.height} - ${resolution.aspectRatioLabel} - ${resolution.format}",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    "Estimated JPEG ${formatBytes(CameraMath.estimatedJpegBytes(resolution))}",
-                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 if (resolution.maximumSensorMode) {
                                     Text(
-                                        "Full sensor only - slower capture - preview briefly restarts after saving",
+                                        "Slower capture, larger files",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.tertiary,
                                     )
                                 } else if (resolution.highResolution) {
                                     Text(
-                                        "Larger file - slower capture - exact output is verified after saving",
+                                        "High-resolution capture",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.tertiary,
                                     )
                                 }
                             }
-                            if (selected?.id == resolution.id) Icon(Icons.Rounded.Check, contentDescription = "Selected")
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SelectionDot(selected: Boolean) {
+    val color = MaterialTheme.colorScheme.primary
+    Canvas(Modifier.size(22.dp)) {
+        drawCircle(
+            color.copy(alpha = if (selected) 1f else 0.65f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()),
+        )
+        if (selected) drawCircle(color, radius = size.minDimension * 0.26f)
     }
 }
 

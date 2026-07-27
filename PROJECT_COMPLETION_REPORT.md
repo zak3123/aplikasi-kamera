@@ -1,103 +1,113 @@
-# Adaptive Composition Camera — Completion Report
+# Project Completion Report
 
-## Completion
+Completion date and time: 2026-07-27 20:05:11 +07:00
 
-- Completion date and time: 2026-07-27 (Asia/Jakarta)
+## Project
+
 - Project directory: `D:\aplikasi-kamera`
-- Release version: `0.7.0` (`versionCode 9`)
-- Branch: `agent/professional-composition-guides`
-- Final APK: `D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.7.0-debug.apk`
-- APK size: 24,822,230 bytes
-- APK SHA-256: `C795630C4FAE9870A2FE422F1469DF139686764F7695B030BDEC49158450A13A`
+- Application ID: `com.fatih.adaptivecompositioncamera`
+- Version: `0.7.0`
+- Final APK path: `D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.7.0-debug.apk`
+- APK file size: `24,822,230` bytes
+- APK SHA256: `0377FC606ECB553769E692D68897CF4D33644368E86A39847B6E535C60767946`
 
-## Validation results
+## Validation
 
-- Build: SUCCESS — `:app:assembleDebug`
-- Unit tests: SUCCESS — 30 tests, 0 failures, 0 errors
-- Lint: SUCCESS — 0 errors, 14 warnings
-- Validation command used one Gradle worker with daemon and parallel execution disabled.
-- Full log: `D:\aplikasi-kamera\build-reports\final-validation-v0.7.0.log`
-- Artifact verification: `D:\aplikasi-kamera\build-reports\final-artifact-verification-v0.7.0.txt`
-- Lint report: `D:\aplikasi-kamera\app\build\reports\lint-results-debug.html`
-- No Gradle or Java process remained after validation.
+- Baseline build before edits: `assembleDebug` succeeded after installing JDK 17.
+- Targeted Kotlin compile after edits: succeeded.
+- Final Gradle command: `gradlew.bat --no-daemon --no-parallel --max-workers=1 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`
+- Build result: SUCCESS
+- Unit-test result: SUCCESS, 30 tests, 0 failures, 0 errors, 0 skipped
+- Lint result: SUCCESS, 0 errors, 14 warnings, 1 Compose autoboxing hint
+- Final validation log: `D:\aplikasi-kamera\build-reports\final-validation-20260727-2010.log`
 
-## Files changed
+## Files Changed
 
-- `ARCHITECTURE.md`
-- `BUILD_COMPLETION_STATUS.txt`
-- `CHANGELOG.md`
+- `APK\AdaptiveCompositionCamera-debug.apk`
+- `APK\AdaptiveCompositionCamera-v0.7.0-debug.apk`
+- `CAMERA_RESOLUTION_AUDIT.md`
+- `DOCUMENT_SCANNER_AUDIT.md`
 - `PROJECT_COMPLETION_REPORT.md`
-- `README.md`
-- `app/build.gradle.kts`
-- `app/src/main/java/com/fatih/adaptivecompositioncamera/camera/CameraRuntime.kt`
-- `app/src/main/java/com/fatih/adaptivecompositioncamera/capability/AndroidCameraCapabilityRepository.kt`
-- `app/src/main/java/com/fatih/adaptivecompositioncamera/composition/CompositionGuideOverlay.kt`
-- `app/src/main/java/com/fatih/adaptivecompositioncamera/domain/model/CameraModels.kt`
-- `app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraScreen.kt`
-- `app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraSheets.kt`
-- `app/src/main/java/com/fatih/adaptivecompositioncamera/ui/capability/CapabilityScreen.kt`
-- `app/src/main/java/com/fatih/adaptivecompositioncamera/utility/CameraMath.kt`
-- `app/src/test/java/com/fatih/adaptivecompositioncamera/CameraMathTest.kt`
-- `build-reports/final-artifact-verification-v0.7.0.txt`
-- `build-reports/final-validation-v0.7.0.log`
+- `UI_AUDIT_AFTER.md`
+- `app\src\main\java\com\fatih\adaptivecompositioncamera\composition\CompositionGuideOverlay.kt`
+- `app\src\main\java\com\fatih\adaptivecompositioncamera\ui\camera\CameraScreen.kt`
+- `app\src\main\java\com\fatih\adaptivecompositioncamera\ui\camera\CameraSheets.kt`
+- `app\src\main\java\com\fatih\adaptivecompositioncamera\ui\camera\CameraUiLayout.kt`
+- `app\src\main\java\com\fatih\adaptivecompositioncamera\utility\CameraMath.kt`
+- `app\src\test\java\com\fatih\adaptivecompositioncamera\CameraMathTest.kt`
+- `build-reports\final-validation-20260727-2005.log`
+- `build-reports\final-validation-20260727-2010.log`
 
-## Features completed
+## Features Completed In This Pass
 
-- Scans Android-openable camera IDs and metadata for physical sensors exposed through logical cameras.
-- Keeps physical-only and non-backward-compatible IDs out of the selectable capture-lens list.
-- Reads normal JPEG, high-resolution JPEG, and API 31+ maximum-resolution JPEG stream maps independently.
-- Uses only real stream dimensions for MP labels; no advertised specification or upscaling is used.
-- Adds Maximum, High, Medium, and Storage saver photo presets derived from exposed JPEG outputs.
-- Shows dimensions, aspect ratio, format, estimated JPEG size, high-resolution state, and maximum-sensor state.
-- Preserves exact CameraX `ResolutionSelector` use for normal capture and the dedicated Camera2 high/maximum-resolution still path.
-- Verifies saved JPEG header dimensions and reports requested, bound, and actual output separately.
-- Reads CameraX-supported video qualities and Camera2 AE FPS ranges dynamically.
-- Applies selected FPS and OIS/EIS/preview stabilization through Camera2 interop.
-- Verifies stabilization state from `CaptureResult` and reports inactive combinations instead of presenting a successful fake toggle.
-- Adds real sensor frame duration to manual ISO/shutter requests and retains Auto reset behavior.
-- Adds Leading Lines, Symmetry, Diagonal, and Golden Triangle to the existing guide system.
-- Adds overlay rotation, mirroring, and interaction lock while keeping overlays preview-only by default.
-- Expands diagnostics with device, logical/physical IDs, arrays, every JPEG group, video/FPS, AF/AE/AWB, OIS/EIS, manual/RAW, zoom, request keys, and runtime errors.
-- Adds local Copy diagnostics and Export diagnostics as TXT actions with no network upload.
+- Removed the large rounded top-control container from the camera screen.
+- Kept top controls as compact individual circular controls over the preview.
+- Reduced portrait bottom control height from 188 dp to 168 dp.
+- Reduced landscape capture and mode rail width from 140 dp to 132 dp total.
+- Replaced raw reduced aspect ratios with friendly camera labels using tolerance.
+- Added tests for `4624 x 3472 -> 4:3`, `4624 x 2080 -> 20:9`, `3840 x 2160 -> 16:9`, and `3264 x 1836 -> 16:9`.
+- Simplified the quick resolution sheet so it no longer shows overflowing preset chips.
+- Changed resolution rows to show megapixels, dimensions, friendly aspect ratio, and format.
+- Removed default estimated JPEG-size text from the quick resolution selector.
+- Reduced Golden Spiral visual dominance by drawing one clean spiral path and one faint fitted golden rectangle.
 
-## Camera resolutions and genuine 48 MP
+## Camera Resolutions Detected
 
-- Camera resolutions detected during this Windows build: none; no Android camera was connected through ADB.
-- Genuine 48 MP output exposed: UNVERIFIED on physical hardware.
-- Requested versus actual captured resolutions: UNVERIFIED on physical hardware.
-- If Android exposes an approximately 48-million-pixel JPEG stream, the app displays and requests that exact stream.
-- If Android exposes only a 12 MP or 16 MP JPEG stream, the app does not display 48 MP.
-- Diagnostics explain when a larger pixel array exists but the Camera HAL exposes only a lower application JPEG output.
+No physical Android device was connected through ADB during this run. Runtime camera IDs, exposed JPEG sizes, high-resolution JPEG sizes, and actual captured dimensions could not be collected from the target phone or tablet.
 
-## Automated verification
+## Genuine 48 MP Output
 
-- Megapixel calculation, aspect ratios, sorting, filtering, duplicate removal, and maximum-resolution selection.
-- Photo quality preset selection using real dimensions.
-- Video quality fallback ordering and stabilization capability mapping.
-- Golden spiral bounds/transformations, rule-of-thirds coordinates, preview crop mapping, and front mirroring.
-- Horizon calculations, FPS validation, high-speed visibility, mode conflicts, camera fallback, and adaptive layouts.
-- Complete 15-guide catalog coverage.
-- Media naming and capability-driven Pro/Documents visibility.
+Unverified in this run. The app must show 48 MP only when Android exposes and the capture path validates a real matching output. It must not rename a 16.1 MP or 12.1 MP stream as 48 MP.
 
-## Physical-device testing still required
+## Requested Versus Actual Captured Resolutions
 
-- Camera enumeration and lens-role labels on the target phone and tablet.
-- Whether the device Camera HAL exposes 12 MP, 16 MP, 48 MP, or another maximum JPEG output.
-- Exact high/maximum-resolution capture, MediaStore indexing, EXIF orientation, and preview restoration.
-- Every reported video quality/FPS/stabilization combination and actual `CaptureResult` status.
-- Pro ISO, shutter, manual focus, white balance, EV, and zoom behavior.
-- Portrait, landscape, reverse landscape, split screen, cutout, and navigation-inset layouts.
-- Front camera mirroring, screen flash, video audio, timer, volume shutter, viewer, share, and delete.
+Unverified on physical hardware in this run. The app code keeps requested, bound, cropped, and actual saved JPEG dimensions as separate diagnostics.
 
-## Remaining limitations
+## Features Requiring Physical-Device Testing
 
-- Focus peaking, zebra, histogram, and RAW capture UI remain hidden because no verified processing/capture path was added; no decorative control claims support.
-- Codec, bitrate, HDR video, and per-quality/FPS stabilization matrices require encoder-profile and real-device session verification before they can be presented as supported.
-- Manufacturer stock camera apps may access private or privileged pipelines unavailable to third-party Camera2/CameraX apps.
-- The two compile warnings are upstream/deprecation notices for the CameraX quality query and Compose clipboard API; lint has no errors.
+- POCO phone and tablet camera ID enumeration.
+- Whether a genuine 48 MP JPEG/high-resolution/maximum-resolution output is exposed.
+- Actual saved JPEG dimensions for recommended and maximum resolution captures.
+- Portrait screenshot verification.
+- Landscape-left and landscape-right screenshot verification.
+- Tablet portrait and landscape screenshot verification.
+- Selfie mirroring and EXIF orientation.
+- Video quality/FPS/stabilization combinations.
+- Latest-media viewer on device galleries.
 
-## Git and shutdown status
+## Remaining Problems Or Limitations
 
-- Intended final Git state after publication: clean branch `agent/professional-composition-guides`, pushed to `origin`.
-- Implementation commit: `acadae3` (`Improve capability-driven camera controls`).
-- Shutdown scheduled: NO. The current attached task did not request a shutdown action.
+- No ADB device was connected, so visual screenshots were not created.
+- Document mode is currently guided capture with a page framing overlay. Automatic edge detection, auto capture, perspective correction, crop editing, enhancement modes, multi-page review, PDF export, JPEG page export, and OCR are not implemented in this revision.
+- Lint still reports dependency-version warnings, Android 16 fixed-orientation warning, and one Compose primitive-state hint.
+- The resolution sheet still contains dormant old preset-chip code guarded by an empty preset list; it does not render, but it should be deleted in a follow-up cleanup when the file encoding is normalized.
+
+## Current Git Status
+
+Recorded before report finalization:
+
+```text
+## agent/professional-composition-guides...origin/agent/professional-composition-guides
+ M APK/AdaptiveCompositionCamera-debug.apk
+ M CAMERA_RESOLUTION_AUDIT.md
+ M UI_AUDIT_AFTER.md
+ M app/src/main/java/com/fatih/adaptivecompositioncamera/composition/CompositionGuideOverlay.kt
+ M app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraScreen.kt
+ M app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraSheets.kt
+ M app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraUiLayout.kt
+ M app/src/main/java/com/fatih/adaptivecompositioncamera/utility/CameraMath.kt
+ M app/src/test/java/com/fatih/adaptivecompositioncamera/CameraMathTest.kt
+?? DOCUMENT_SCANNER_AUDIT.md
+?? build-reports/final-validation-20260727-2005.log
+?? build-reports/final-validation-20260727-2010.log
+```
+
+## Shutdown
+
+Requested shutdown command:
+
+```powershell
+shutdown.exe /s /f /t 180 /c "Adaptive Composition Camera development completed. Windows will shut down automatically."
+```
+
+Shutdown was not scheduled because all requested completion conditions are not satisfied. In particular, no physical visual verification was possible and the automatic document scanner workflow is not fully implemented.

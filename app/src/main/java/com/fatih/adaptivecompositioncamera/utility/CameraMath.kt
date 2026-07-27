@@ -39,8 +39,18 @@ object CameraMath {
 
     fun aspectRatioLabel(width: Int, height: Int): String {
         if (width <= 0 || height <= 0) return "Unknown"
+        val ratio = maxOf(width, height).toDouble() / minOf(width, height).toDouble()
+        val common = listOf(
+            1.0 to "1:1",
+            4.0 / 3.0 to "4:3",
+            3.0 / 2.0 to "3:2",
+            16.0 / 9.0 to "16:9",
+            20.0 / 9.0 to "20:9",
+            PHI.toDouble() to "Phi",
+        ).minByOrNull { abs(ratio - it.first) }
+        if (common != null && abs(ratio - common.first) <= 0.06) return common.second
         val gcd = gcd(width, height)
-        return "${width / gcd}:${height / gcd}"
+        return "${maxOf(width, height) / gcd}:${minOf(width, height) / gcd}"
     }
 
     fun sortResolutions(sizes: List<Size>, format: String): List<CameraResolution> {

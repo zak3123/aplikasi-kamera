@@ -1,44 +1,61 @@
 # UI Audit After
 
-## 0.5.0 stock-camera chrome pass
+Completion time: 2026-07-27 20:05:11 +07:00
 
-- Transparent compact top controls replaced the visually heavy quick-control circles.
-- Portrait controls reserve 164 dp instead of 188 dp.
-- Landscape mode/capture rail is 164 dp instead of 216 dp.
-- Shutter remains a standard 78 dp ring with photo/video/recording states.
-- Latest media and camera switch use consistent 48 dp controls.
-- Mode selection uses a restrained underline and never wraps Photo into two lines.
-- Resolution selection is grouped into High resolution, Recommended, and Standard sections.
-- The More sheet uses a native capability explanation rather than a developer-test message.
+## Portrait result
 
-## Composition selector repair
+- The top camera controls no longer sit inside one large rounded translucent card.
+- Each top control now has its own compact circular visual target over the preview.
+- Portrait bottom controls were reduced from the previous heavy region to a smaller 168 dp token.
+- Shutter remains a standard centered photo/video control with no text inside it.
 
-- The height-limited nested lazy grid was removed.
-- The bottom sheet now has one vertical scroll owner, so every guide card and the appearance controls can be reached naturally.
-- The catalog contains all 11 implemented guides:
-  1. None
-  2. Rule of Thirds
-  3. Golden Ratio / Phi Grid
-  4. Golden Spiral
-  5. Vanishing Point
-  6. Frame in a Frame
-  7. Centered
-  8. Texture and Repetition
-  9. Foreground
-  10. Eye Line
-  11. Horizon and Level
-- Cards use two columns on compact sheets and three columns when at least 600 dp is available.
-- The header explicitly states `11 photographic guides`.
-- Each tile retains a miniature overlay preview, name, description, selected border, and now a selected check indicator.
-- Selecting a guide applies it and closes the sheet, preserving the preview-first camera workflow.
-- A regression unit test verifies that the UI catalog includes every supported guide and contains exactly 11 entries.
+## Landscape-left result
 
-## Verification result
+- Landscape keeps a dedicated capture rail instead of rotating the portrait layout.
+- The landscape capture and mode rail tokens were reduced to keep the preview more dominant.
+- Physical screenshot verification was not possible because no ADB device was connected.
 
-- Static source review: Passed
-- Kotlin compilation: Passed
-- Unit tests: Passed (22/22)
-- Android lint: Passed (0 errors; 13 dependency/version notices)
-- APK generation: Passed
-- New physical screenshots: Not performed because no Android device was connected through ADB.
-- Portrait/landscape/tablet visual acceptance on hardware: Requires physical-device verification.
+## Landscape-right result
+
+- The same adaptive landscape rail code is used for both landscape rotations.
+- Physical screenshot verification was not possible because no ADB device was connected.
+
+## Tablet result
+
+- Tablet policy still uses the adaptive phone/tablet layout classifier and constrained control widths.
+- Physical tablet verification was not possible because no ADB tablet was connected.
+
+## Resolution selector result
+
+- The resolution selector no longer renders the old horizontal preset chip row.
+- Options are grouped as Maximum available, Recommended, and Other.
+- Each row shows megapixels, dimensions, friendly aspect ratio, and format.
+- Estimated JPEG size is no longer displayed by default in the quick selector.
+- Raw reduced ratios such as 289:217 and 289:130 are replaced by friendly camera labels when near a common ratio.
+
+## Composition selector result
+
+- The guide catalog remains native Compose and includes 15 guide types.
+- The selected guide is the only overlay drawn on the preview.
+- Guide selection still requires hardware visual testing for final alignment.
+
+## Golden Spiral result
+
+- The golden spiral now draws one subtle spiral path and one faint fitted golden rectangle.
+- Internal Fibonacci square outlines were removed from the live overlay because they made the guide visually dominant and doubled.
+- The path remains clipped to the fitted preview bounds.
+
+## Document mode result
+
+- Documents mode exists as a guided capture mode with an A-series framing overlay.
+- Automatic document edge detection, perspective correction, crop editor, multi-page review, enhancement modes, and PDF export are not implemented in this revision.
+
+## Screenshots created
+
+No screenshots were created because `adb devices` returned no connected Android phone or tablet.
+
+## Remaining visual limitations
+
+- Real phone portrait and both landscape rotations still require screenshot verification.
+- Tablet portrait and tablet landscape still require screenshot verification.
+- The document scanner must not be considered complete until automatic detection and editor/export workflows are implemented and tested on device.
