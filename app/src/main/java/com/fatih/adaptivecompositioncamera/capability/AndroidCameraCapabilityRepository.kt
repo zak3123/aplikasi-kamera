@@ -11,6 +11,7 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.util.Range
 import android.util.Size
+import com.fatih.adaptivecompositioncamera.camera.CameraEvidenceLogger
 import com.fatih.adaptivecompositioncamera.domain.model.CameraCapability
 import com.fatih.adaptivecompositioncamera.domain.model.CameraCapabilityRepository
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
@@ -26,6 +27,8 @@ import com.fatih.adaptivecompositioncamera.utility.CameraMath
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class AndroidCameraCapabilityRepository(
     private val context: Context,
@@ -36,13 +39,21 @@ class AndroidCameraCapabilityRepository(
     private val _capabilityReport = MutableStateFlow<CapabilityReport?>(null)
     override val capabilityReport: StateFlow<CapabilityReport?> = _capabilityReport.asStateFlow()
 
-    override suspend fun refresh(): CapabilityReport {
+    override suspend fun refresh(): CapabilityReport = withContext(Dispatchers.IO) {
+        CameraEvidenceLogger.startCapabilityScan(context)
         val openableIds = safeCameraIds()
-        val scannedOpenable = openableIds.mapNotNull { id -> inspectCamera(id, isOpenable = true) }
+        CameraEvidenceLogger.record(
+            context,
+            "CAMERA2",
+            "cameraIdList=${openableIds.joinToString(prefix = "[", postfix = "]")}",
+        )
+        val scannedOpenable = openableIds.mapNotNull { id ->
+            inspectCamera(id, isOpenable = true)
+        }
         val physicalParents = buildMap<String, MutableList<String>> {
-            scannedOpenable.forEach { logical ->
-                logical.physicalCameraIds.forEach { physicalId ->
-                    getOrPut(physicalId) { mutableListOf() }.add(logical.cameraId)
+            for (logical in scannedOpenable) {
+                for (physicalId in logical.physicalCameraIds) {
+                    getOrPut(physicalId, ::mutableListOf).add(logical.cameraId)
                 }
             }
         }
@@ -53,11 +64,18 @@ class AndroidCameraCapabilityRepository(
             inspectCamera(id, isOpenable = false, parentLogicalCameraIds = physicalParents[id].orEmpty())
         }
         val cameras = openable + physicalOnly
-        return CapabilityReport(
+        CapabilityReport(
             generatedAtEpochMillis = System.currentTimeMillis(),
             appPackage = context.packageName,
             cameras = cameras,
-        ).also { _capabilityReport.value = it }
+        ).also { report ->
+            _capabilityReport.value = report
+            CameraEvidenceLogger.record(
+                context,
+                "CAMERA2",
+                "scanComplete openable=${openable.size} physicalOnly=${physicalOnly.size}",
+            )
+        }
     }
 
     private fun safeCameraIds(): List<String> = try {
@@ -88,36 +106,20 @@ class AndroidCameraCapabilityRepository(
 
         val facing = c.safe(CameraCharacteristics.LENS_FACING).toLensFacing()
         val capabilities = c.safe(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)?.toList().orEmpty().toSet()
-        val streamMap = c.safe(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        val jpegSizes = streamMap?.getOutputSizes(ImageFormat.JPEG).orEmpty().toList()
-        val highResolutionJpegSizes = streamMap.highResolutionOutputSizes(ImageFormat.JPEG)
-        val maximumStreamMap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            c.safe(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION)
-        } else null
         val captureRequestKeys = runCatching { c.availableCaptureRequestKeys }.getOrNull().orEmpty()
         val ultraHighResolution = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR)
         val supportsMaximumPixelMode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             captureRequestKeys.contains(CaptureRequest.SENSOR_PIXEL_MODE)
-        val maximumJpegSizes = if (ultraHighResolution || supportsMaximumPixelMode) {
-            maximumStreamMap?.getOutputSizes(ImageFormat.JPEG).orEmpty().toList()
-        } else {
-            emptyList()
-        }
-        val heicSizes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            streamMap?.getOutputSizes(ImageFormat.HEIC).orEmpty().toList()
-        } else emptyList()
-        val rawSizes = streamMap?.getOutputSizes(ImageFormat.RAW_SENSOR).orEmpty().toList()
-        val yuvSizes = streamMap?.getOutputSizes(ImageFormat.YUV_420_888).orEmpty().toList()
-        val privateSizes = streamMap?.getOutputSizes(MediaRecorder::class.java).orEmpty().toList()
+        val streams = readStreamInventory(c, ultraHighResolution, supportsMaximumPixelMode)
         val focalLengths = c.safe(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.toList().orEmpty()
         val physicalSize = c.safe(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
         val physicalIds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) c.physicalCameraIds.toList() else emptyList()
-        val maxJpeg = CameraMath.sortResolutions(jpegSizes, "JPEG").firstOrNull()
+        val maxJpeg = CameraMath.sortResolutions(streams.normalJpegs, "JPEG").firstOrNull()
         val fpsRangeValues = c.safe(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
             ?.map { VideoFpsRange(it.lower, it.upper) }.orEmpty()
 
-        return CameraCapability(
+        val capability = CameraCapability(
             cameraId = cameraId,
             friendlyName = friendlyName(
                 cameraId,
@@ -150,19 +152,19 @@ class AndroidCameraCapabilityRepository(
             isoRange = c.safe(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)?.toText(),
             exposureTimeRange = c.safe(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)?.toText(),
             exposureCompensationRange = c.safe(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)?.toText(),
-            jpegResolutions = CameraMath.sortResolutions(jpegSizes, "JPEG"),
-            highResolutionJpegs = CameraMath.sortResolutions(highResolutionJpegSizes, "JPEG").map {
+            jpegResolutions = CameraMath.sortResolutions(streams.normalJpegs, "JPEG"),
+            highResolutionJpegs = CameraMath.sortResolutions(streams.highResolutionJpegs, "JPEG").map {
                 it.copy(highResolution = true, recommended = false)
             },
-            maximumResolutionJpegs = CameraMath.sortResolutions(maximumJpegSizes, "JPEG").map {
+            maximumResolutionJpegs = CameraMath.sortResolutions(streams.maximumResolutionJpegs, "JPEG").map {
                 it.copy(maximumSensorMode = true, recommended = false)
             },
-            heicResolutions = CameraMath.sortResolutions(heicSizes, "HEIC"),
-            rawResolutions = CameraMath.sortResolutions(rawSizes, "DNG"),
-            yuvResolutions = CameraMath.sortResolutions(yuvSizes, "YUV_420_888"),
-            videoResolutions = CameraMath.sortResolutions(privateSizes, "MP4"),
+            heicResolutions = CameraMath.sortResolutions(streams.heic, "HEIC"),
+            rawResolutions = CameraMath.sortResolutions(streams.raw, "DNG"),
+            yuvResolutions = CameraMath.sortResolutions(streams.yuv, "YUV_420_888"),
+            videoResolutions = CameraMath.sortResolutions(streams.video, "MP4"),
             fpsRanges = c.safe(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)?.toList().orEmpty().map { it.toText() },
-            highSpeedVideo = streamMap.highSpeedOptions(),
+            highSpeedVideo = streams.highSpeed,
             stabilization = stabilization(c),
             extensions = ExtensionSupport(),
             supportsRaw = capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW),
@@ -176,7 +178,11 @@ class AndroidCameraCapabilityRepository(
                 c.safe(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)?.toText()
             } else null,
             supportsUltraHighResolutionSensor = ultraHighResolution,
-            sensorPixelModes = if (maximumJpegSizes.isNotEmpty()) listOf("Normal", "Maximum Resolution") else listOf("Normal"),
+            sensorPixelModes = if (streams.maximumResolutionJpegs.isNotEmpty()) {
+                listOf("Normal", "Maximum Resolution")
+            } else {
+                listOf("Normal")
+            },
             isOpenable = isOpenable,
             isLogical = physicalIds.isNotEmpty(),
             isPhysicalOnly = !isOpenable && parentLogicalCameraIds.isNotEmpty(),
@@ -207,21 +213,25 @@ class AndroidCameraCapabilityRepository(
                     add("This camera is not marked as backward-compatible for normal third-party camera capture.")
                 }
                 val sensorPixels = c.safe(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
-                val maximumApplicationJpeg = (maximumJpegSizes + highResolutionJpegSizes + jpegSizes)
+                val maximumApplicationJpeg = (
+                    streams.maximumResolutionJpegs +
+                        streams.highResolutionJpegs +
+                        streams.normalJpegs
+                    )
                     .maxByOrNull { it.width.toLong() * it.height }
                 if (sensorPixels != null && maximumApplicationJpeg != null) {
                     val sensorMp = CameraMath.megapixels(sensorPixels.width, sensorPixels.height)
                     val outputMp = CameraMath.megapixels(maximumApplicationJpeg.width, maximumApplicationJpeg.height)
                     if (
                         sensorMp > outputMp + 1.0 &&
-                        maximumJpegSizes.isEmpty() &&
-                        highResolutionJpegSizes.isEmpty()
+                        streams.maximumResolutionJpegs.isEmpty() &&
+                        streams.highResolutionJpegs.isEmpty()
                     ) {
                         add("This device may use a higher-resolution image sensor, but Android exposes a maximum application capture output of ${maximumApplicationJpeg.width} x ${maximumApplicationJpeg.height}, approximately $outputMp MP.")
                     }
                 }
-                if (maximumJpegSizes.isNotEmpty()) {
-                    val maximum = maximumJpegSizes.maxByOrNull { it.width.toLong() * it.height }
+                if (streams.maximumResolutionJpegs.isNotEmpty()) {
+                    val maximum = streams.maximumResolutionJpegs.maxByOrNull { it.width.toLong() * it.height }
                     if (maximum != null) {
                         add(
                             "Android reports a maximum-sensor-map output of ${maximum.width} x ${maximum.height}, " +
@@ -231,6 +241,105 @@ class AndroidCameraCapabilityRepository(
                 }
             },
         )
+        CameraEvidenceLogger.record(context, "CAMERA2", capability.evidenceSummary(streams))
+        return capability
+    }
+
+    /**
+     * Reads normal and maximum sensor maps independently. A size is never promoted
+     * from sensor pixel-array metadata: only an actual Android output surface is
+     * returned to the UI.
+     */
+    @SuppressLint("NewApi")
+    private fun readStreamInventory(
+        characteristics: CameraCharacteristics,
+        ultraHighResolution: Boolean,
+        supportsMaximumPixelMode: Boolean,
+    ): StreamInventory {
+        val normalMap = characteristics.safe(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        val maximumMap = if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ultraHighResolution &&
+            supportsMaximumPixelMode
+        ) {
+            characteristics.safe(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION)
+        } else {
+            null
+        }
+        return StreamInventory(
+            normalJpegs = normalMap.outputSizes(ImageFormat.JPEG),
+            highResolutionJpegs = normalMap.highResolutionOutputSizes(ImageFormat.JPEG),
+            maximumResolutionJpegs = maximumMap.outputSizes(ImageFormat.JPEG),
+            heic = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                normalMap.outputSizes(ImageFormat.HEIC)
+            } else {
+                emptyList()
+            },
+            raw = normalMap.outputSizes(ImageFormat.RAW_SENSOR),
+            yuv = normalMap.outputSizes(ImageFormat.YUV_420_888),
+            video = normalMap.outputSizes(MediaRecorder::class.java),
+            highSpeed = normalMap.highSpeedOptions(),
+            normalJpegTimings = normalMap.outputTimings(ImageFormat.JPEG),
+            maximumJpegTimings = maximumMap.outputTimings(ImageFormat.JPEG),
+        )
+    }
+
+    private fun CameraCapability.evidenceSummary(streams: StreamInventory): String = buildString {
+        append("id=$cameraId facing=$lensFacing role=$lensRole openable=$isOpenable ")
+        append("logical=$isLogical physicalIds=${physicalCameraIds.joinToString(prefix = "[", postfix = "]")} ")
+        append("hardware=$hardwareLevel sensorOrientation=$sensorOrientation ")
+        append("activeArray=$activeArray pixelArray=$pixelArray maximumPixelArray=$maximumPixelArray ")
+        append("normalJPEG=${streams.normalJpegs.asEvidenceSizes()} ")
+        append("highResolutionJPEG=${streams.highResolutionJpegs.asEvidenceSizes()} ")
+        append("maximumResolutionJPEG=${streams.maximumResolutionJpegs.asEvidenceSizes()} ")
+        append("normalJpegTiming=${streams.normalJpegTimings.joinToString(prefix = "[", postfix = "]")} ")
+        append("maximumJpegTiming=${streams.maximumJpegTimings.joinToString(prefix = "[", postfix = "]")} ")
+        append("raw=${streams.raw.asEvidenceSizes()} heic=${streams.heic.asEvidenceSizes()} ")
+        append("video=${streams.video.asEvidenceSizes()} highSpeed=${streams.highSpeed} ")
+        append("stabilization=$stabilization requestKeys=${availableCaptureRequestKeys.joinToString(prefix = "[", postfix = "]")}")
+    }
+
+    private fun List<Size>.asEvidenceSizes(): String =
+        joinToString(prefix = "[", postfix = "]") { "${it.width}x${it.height}" }
+
+    private data class StreamInventory(
+        val normalJpegs: List<Size>,
+        val highResolutionJpegs: List<Size>,
+        val maximumResolutionJpegs: List<Size>,
+        val heic: List<Size>,
+        val raw: List<Size>,
+        val yuv: List<Size>,
+        val video: List<Size>,
+        val highSpeed: List<HighSpeedVideoOption>,
+        val normalJpegTimings: List<String>,
+        val maximumJpegTimings: List<String>,
+    )
+
+    private fun android.hardware.camera2.params.StreamConfigurationMap?.outputSizes(
+        format: Int,
+    ): List<Size> = if (this == null) {
+        emptyList()
+    } else {
+        runCatching { getOutputSizes(format).orEmpty().toList() }.getOrDefault(emptyList())
+    }
+
+    private fun android.hardware.camera2.params.StreamConfigurationMap?.outputSizes(
+        klass: Class<*>,
+    ): List<Size> = if (this == null) {
+        emptyList()
+    } else {
+        runCatching { getOutputSizes(klass).orEmpty().toList() }.getOrDefault(emptyList())
+    }
+
+    private fun android.hardware.camera2.params.StreamConfigurationMap?.outputTimings(
+        format: Int,
+    ): List<String> {
+        if (this == null) return emptyList()
+        return outputSizes(format).map { size ->
+            val minFrame = runCatching { getOutputMinFrameDuration(format, size) }.getOrDefault(0L)
+            val stall = runCatching { getOutputStallDuration(format, size) }.getOrDefault(0L)
+            "${size.width}x${size.height}:min=${minFrame}ns,stall=${stall}ns"
+        }
     }
 
     private fun android.hardware.camera2.params.StreamConfigurationMap?.highResolutionOutputSizes(

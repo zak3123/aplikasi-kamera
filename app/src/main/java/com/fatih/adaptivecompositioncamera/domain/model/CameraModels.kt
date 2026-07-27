@@ -204,7 +204,7 @@ data class CameraCapability(
 ) {
     val selectablePhotoResolutions: List<CameraResolution>
         get() = (
-            maximumResolutionJpegs.takeUnless { lensFacing == LensFacing.Front }.orEmpty() +
+            maximumResolutionJpegs +
                 highResolutionJpegs +
                 jpegResolutions
             )

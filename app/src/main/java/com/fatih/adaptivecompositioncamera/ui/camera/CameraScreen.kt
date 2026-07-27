@@ -228,6 +228,7 @@ fun CameraScreen(
     val mirrorPreview = isFront && settings.mirrorFrontPreview
     val sessionState by runtime.state.collectAsState()
     val stabilizationStatus by runtime.stabilizationStatus.collectAsState()
+    val stabilizationEvidence by runtime.stabilizationEvidence.collectAsState()
     val videoFpsOptions = remember(activeCapability) {
         activeCapability?.fpsRangeValues.orEmpty()
             .filter { it.max in setOf(24, 25, 30, 50, 60, 120) }
@@ -546,7 +547,11 @@ fun CameraScreen(
                     ?.let { width -> "$width × ${runtimeInfo.previewHeight}" },
                 currentFps = runtimeInfo.requestedFpsRange?.label
                     ?: activeCapability?.fpsRanges?.joinToString(limit = 3),
-                stabilization = stabilizationStatus,
+                stabilization = if (settings.mode == CameraMode.Video) {
+                    "$stabilizationStatus | $stabilizationEvidence"
+                } else {
+                    stabilizationStatus
+                },
                 requestedVideoQuality = runtimeInfo.selectedVideoQuality.name,
                 supportedVideoQualities = runtimeInfo.supportedVideoQualities.joinToString { it.name },
                 requestedFps = runtimeInfo.requestedFpsRange?.label,
@@ -779,11 +784,22 @@ fun CameraScreen(
         }
         val fullScreenFrame =
             settings.mode != CameraMode.Video && effectivePhotoAspect == PhotoAspectRatio.FullScreen
-        val fittedFrame = com.fatih.adaptivecompositioncamera.utility.FloatBounds(
+        val availableFrame = com.fatih.adaptivecompositioncamera.utility.FloatBounds(
             guideStart.value,
             guideTop.value,
             maxWidth.value - guideEnd.value,
             maxHeight.value - guideBottom.value,
+        )
+        val localFrame = CameraMath.fitAspectRatio(
+            availableFrame.width,
+            availableFrame.height,
+            targetAspect,
+        )
+        val fittedFrame = com.fatih.adaptivecompositioncamera.utility.FloatBounds(
+            availableFrame.left + localFrame.left,
+            availableFrame.top + localFrame.top,
+            availableFrame.left + localFrame.right,
+            availableFrame.top + localFrame.bottom,
         )
         val requestedViewport = if (targetAspect >= 1f) {
             IntSize((targetAspect * 1_000f).toInt(), 1_000)

@@ -10,6 +10,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -56,12 +57,25 @@ fun CompositionGuideOverlay(
             }) {
             when (guide) {
                 CompositionGuide.RuleOfThirds -> {
+                    val coordinates = CameraMath.ruleOfThirds(size.width, size.height)
+                    coordinates.chunked(2).forEach { segment ->
+                        val start = segment[0]
+                        val end = segment[1]
+                        line(
+                            Offset(mappedX(start.x), start.y),
+                            Offset(mappedX(end.x), end.y),
+                        )
+                    }
                     val xs = listOf(size.width / 3f, size.width * 2f / 3f)
                     val ys = listOf(size.height / 3f, size.height * 2f / 3f)
-                    xs.forEach { line(Offset(mappedX(it), 0f), Offset(mappedX(it), size.height)) }
-                    ys.forEach { line(Offset(0f, it), Offset(size.width, it)) }
                     if (style.intersections) xs.forEach { x -> ys.forEach { y ->
-                        drawCircle(color, 3.2.dp.toPx(), Offset(mappedX(x), y))
+                        drawCircle(color, 3.dp.toPx(), Offset(mappedX(x), y))
+                        drawCircle(
+                            Color.Black.copy(alpha = 0.62f),
+                            4.4.dp.toPx(),
+                            Offset(mappedX(x), y),
+                            style = Stroke(1.dp.toPx()),
+                        )
                     } }
                 }
 
@@ -78,23 +92,28 @@ fun CompositionGuideOverlay(
 
                 CompositionGuide.VanishingPoint -> {
                     val point = Offset(mappedX(size.width * vanishingPoint.x), size.height * vanishingPoint.y)
-                    val lineCount = style.vanishingLineCount.coerceIn(3, 13)
-                    repeat(lineCount) { index ->
-                        val fraction = index / (lineCount - 1f)
-                        line(Offset(size.width * fraction, 0f), point)
-                        line(Offset(size.width * fraction, size.height), point)
-                    }
-                    drawCircle(color, 8.dp.toPx(), point, style = stroke)
-                    drawCircle(color, 2.5.dp.toPx(), point)
+                    perspectiveEdgePoints(
+                        width = size.width,
+                        height = size.height,
+                        lineCount = style.vanishingLineCount,
+                    ).forEach { edge -> line(edge, point) }
+                    drawCircle(Color.Black.copy(alpha = 0.68f), 10.dp.toPx(), point)
+                    drawCircle(color, 8.dp.toPx(), point, style = Stroke(width = width * 1.2f))
+                    drawCircle(color, 2.4.dp.toPx(), point)
                 }
 
                 CompositionGuide.GoldenRatio -> {
                     val first = 1f / (CameraMath.PHI * CameraMath.PHI)
-                    listOf(size.width * first, size.width * (1f - first)).forEach {
+                    val xs = listOf(size.width * first, size.width * (1f - first))
+                    val ys = listOf(size.height * first, size.height * (1f - first))
+                    xs.forEach {
                         line(Offset(mappedX(it), 0f), Offset(mappedX(it), size.height))
                     }
-                    listOf(size.height * first, size.height * (1f - first)).forEach {
+                    ys.forEach {
                         line(Offset(0f, it), Offset(size.width, it))
+                    }
+                    if (style.intersections) xs.forEach { x ->
+                        ys.forEach { y -> drawCircle(color, 2.6.dp.toPx(), Offset(mappedX(x), y)) }
                     }
                 }
 
@@ -261,8 +280,9 @@ private fun DrawScope.drawGoldenSpiral(
     mirrored: Boolean,
 ) {
     val fitted = CameraMath.fitGoldenRectangle(size.width, size.height)
+    if (fitted.width <= 0f || fitted.height <= 0f) return
+    val arcs = CameraMath.goldenSpiralArcs(size.width, size.height, iterations = 11)
     val path = Path()
-    val arcs = CameraMath.goldenSpiralArcs(size.width, size.height)
     arcs.forEachIndexed { index, arc ->
         path.arcTo(
             Rect(arc.oval.left, arc.oval.top, arc.oval.right, arc.oval.bottom),
@@ -282,24 +302,69 @@ private fun DrawScope.drawGoldenSpiral(
         scale(if (flipX) -1f else 1f, if (flipY) -1f else 1f, pivot)
     }) {
         clipRect(fitted.left, fitted.top, fitted.right, fitted.bottom) {
-            val subtleStroke = Stroke(width = minOf(stroke.width, 1.dp.toPx()), pathEffect = stroke.pathEffect)
-            val spiralStroke = Stroke(width = minOf(stroke.width, 1.4.dp.toPx()), pathEffect = stroke.pathEffect)
+            val subtleStroke = Stroke(
+                width = (stroke.width * 0.62f).coerceAtLeast(0.65.dp.toPx()),
+                pathEffect = stroke.pathEffect,
+            )
+            val spiralStroke = Stroke(
+                width = stroke.width.coerceIn(0.9.dp.toPx(), 3.dp.toPx()),
+                pathEffect = stroke.pathEffect,
+            )
             guideRect(
                 Rect(fitted.left, fitted.top, fitted.right, fitted.bottom),
-                color.copy(alpha = color.alpha * 0.20f),
+                color.copy(alpha = color.alpha * 0.32f),
                 subtleStroke,
                 false,
             )
+            arcs.take(8).forEach { arc ->
+                guideRect(
+                    Rect(arc.square.left, arc.square.top, arc.square.right, arc.square.bottom),
+                    color.copy(alpha = color.alpha * 0.26f),
+                    subtleStroke,
+                    false,
+                )
+            }
             if (style.outline) {
                 drawPath(
                     path,
-                    Color.Black.copy(alpha = 0.42f),
-                    style = Stroke(width = spiralStroke.width + 1.4.dp.toPx(), pathEffect = stroke.pathEffect),
+                    Color.Black.copy(alpha = 0.66f),
+                    style = Stroke(width = spiralStroke.width + 1.8.dp.toPx(), pathEffect = stroke.pathEffect),
                 )
             }
-            drawPath(path, color.copy(alpha = color.alpha * 0.78f), style = spiralStroke)
+            drawPath(path, color, style = spiralStroke)
         }
     }
+}
+
+/**
+ * Distributes perspective rays around all four preview edges. The old renderer
+ * drew two dense fans only from the top and bottom, which looked like a broken
+ * test grid and left the side composition unrepresented.
+ */
+internal fun perspectiveEdgePoints(
+    width: Float,
+    height: Float,
+    lineCount: Int,
+): List<Offset> {
+    if (width <= 0f || height <= 0f) return emptyList()
+    val divisions = lineCount.coerceIn(3, 9)
+    val interiorFractions = (1 until divisions).map { it / divisions.toFloat() }
+    return buildList {
+        add(Offset(0f, 0f))
+        add(Offset(width, 0f))
+        add(Offset(width, height))
+        add(Offset(0f, height))
+        interiorFractions.forEach { fraction ->
+            add(Offset(width * fraction, 0f))
+            add(Offset(width * fraction, height))
+        }
+        interiorFractions
+            .filterIndexed { index, _ -> index % 2 == 0 }
+            .forEach { fraction ->
+                add(Offset(0f, height * fraction))
+                add(Offset(width, height * fraction))
+            }
+    }.distinct()
 }
 
 private fun DrawScope.guideLine(
@@ -309,8 +374,24 @@ private fun DrawScope.guideLine(
     stroke: Stroke,
     outline: Boolean,
 ) {
-    if (outline) drawLine(Color.Black.copy(alpha = 0.68f), start, end, stroke.width + 2.2.dp.toPx(), pathEffect = stroke.pathEffect)
-    drawLine(color, start, end, stroke.width, pathEffect = stroke.pathEffect)
+    if (outline) {
+        drawLine(
+            Color.Black.copy(alpha = 0.62f),
+            start,
+            end,
+            stroke.width + 1.8.dp.toPx(),
+            cap = StrokeCap.Round,
+            pathEffect = stroke.pathEffect,
+        )
+    }
+    drawLine(
+        color,
+        start,
+        end,
+        stroke.width,
+        cap = StrokeCap.Round,
+        pathEffect = stroke.pathEffect,
+    )
 }
 
 private fun DrawScope.guideRect(

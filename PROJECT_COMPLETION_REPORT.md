@@ -1,5 +1,9 @@
 # Project Completion Report
 
+> Superseded on 2026-07-28 by the v0.8.0 core-camera rewrite. The current
+> implementation is awaiting physical-device verification and is not complete.
+> See `CORE_CAMERA_REWRITE_EVIDENCE.md` and `BUILD_COMPLETION_STATUS.txt`.
+
 Completion date and time: 2026-07-27 21:02:21 +07:00
 
 ## Project

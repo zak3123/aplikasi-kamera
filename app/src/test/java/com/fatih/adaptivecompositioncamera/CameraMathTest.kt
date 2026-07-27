@@ -27,6 +27,7 @@ import com.fatih.adaptivecompositioncamera.ui.camera.professionalGuideCatalog
 import com.fatih.adaptivecompositioncamera.ui.camera.CameraUiTokens
 import com.fatih.adaptivecompositioncamera.ui.camera.cameraUiLayoutPolicy
 import com.fatih.adaptivecompositioncamera.ui.camera.modeResolutionKey
+import com.fatih.adaptivecompositioncamera.composition.perspectiveEdgePoints
 import kotlin.math.cos
 import kotlin.math.sin
 import org.junit.Assert.assertEquals
@@ -341,13 +342,35 @@ class CameraMathTest {
     }
 
     @Test
-    fun maximumSensorSessionIsNotOfferedForMirroredFrontCapture() {
+    fun maximumSensorSessionRemainsSelectableOnFrontCameraWhenAndroidExposesIt() {
         val recommended = resolution(4000, 3000, recommended = true)
         val maximum = resolution(8000, 6000).copy(maximumSensorMode = true)
         val capability = fakeCapability(jpeg = listOf(recommended), maximumJpeg = listOf(maximum))
             .copy(lensFacing = LensFacing.Front)
-        assertFalse(capability.selectablePhotoResolutions.any { it.maximumSensorMode })
-        assertEquals(4000, capability.displayMaximumResolution?.width)
+        assertTrue(capability.selectablePhotoResolutions.any { it.maximumSensorMode })
+        assertEquals(8000, capability.displayMaximumResolution?.width)
+    }
+
+    @Test
+    fun stabilizationResolverFallsBackWithoutFabricatingSupport() {
+        val support = StabilizationSupport(optical = false, electronicVideo = true, preview = false)
+        val resolver = DefaultStabilizationResolver()
+        val video = resolver.resolve(VideoStabilizationMode.Preview, support, CameraMode.Video)
+        val highSpeed = resolver.resolve(VideoStabilizationMode.Standard, support, CameraMode.HighFrameRate)
+        assertEquals(VideoStabilizationMode.Off, video.effective)
+        assertTrue(video.fallbackReason?.contains("incompatible") == true)
+        assertEquals(VideoStabilizationMode.Off, highSpeed.effective)
+    }
+
+    @Test
+    fun perspectiveGuideUsesEveryPreviewEdgeWithoutLeavingBounds() {
+        val points = perspectiveEdgePoints(width = 400f, height = 300f, lineCount = 5)
+        assertTrue(points.any { it.x == 0f })
+        assertTrue(points.any { it.x == 400f })
+        assertTrue(points.any { it.y == 0f })
+        assertTrue(points.any { it.y == 300f })
+        assertTrue(points.all { it.x in 0f..400f && it.y in 0f..300f })
+        assertEquals(points.distinct().size, points.size)
     }
 
     @Test

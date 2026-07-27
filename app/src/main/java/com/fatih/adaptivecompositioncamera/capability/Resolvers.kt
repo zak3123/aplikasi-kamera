@@ -10,6 +10,8 @@ import com.fatih.adaptivecompositioncamera.domain.model.HighSpeedCapabilityProvi
 import com.fatih.adaptivecompositioncamera.domain.model.HighSpeedVideoOption
 import com.fatih.adaptivecompositioncamera.domain.model.LensFacing
 import com.fatih.adaptivecompositioncamera.domain.model.StabilizationResolver
+import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
+import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
 
 class CameraConfigurationResolver {
     fun availableModes(capability: CameraCapability): List<CameraMode> = buildList {
@@ -73,13 +75,118 @@ class LastKnownGoodCameraConfiguration {
 
 class DefaultStabilizationResolver : StabilizationResolver {
     override fun isSupported(capability: CameraCapability, mode: CameraMode): Boolean {
-        return when (mode) {
-            CameraMode.Video, CameraMode.TimeLapse -> capability.stabilization.electronicVideo || capability.stabilization.optical
-            CameraMode.HighFrameRate, CameraMode.SlowMotion, CameraMode.MaximumResolution -> false
-            else -> capability.stabilization.preview || capability.stabilization.optical
+        return supportedModes(capability, mode).any { it !in setOf(
+            VideoStabilizationMode.Off,
+            VideoStabilizationMode.Unsupported,
+        ) }
+    }
+
+    /**
+     * Returns only request modes that can legally make sense for the active app
+     * mode. CaptureResult still decides whether the HAL actually activated it for
+     * the chosen resolution/FPS.
+     */
+    fun supportedModes(
+        capability: CameraCapability,
+        mode: CameraMode,
+    ): List<VideoStabilizationMode> {
+        if (
+            mode == CameraMode.MaximumResolution ||
+            mode == CameraMode.HighFrameRate ||
+            mode == CameraMode.SlowMotion ||
+            mode == CameraMode.Burst
+        ) {
+            return listOf(VideoStabilizationMode.Off)
+        }
+        return buildList {
+            add(VideoStabilizationMode.Off)
+            when (mode) {
+                CameraMode.Video, CameraMode.TimeLapse -> {
+                    if (capability.stabilization.preview) add(VideoStabilizationMode.Preview)
+                    if (capability.stabilization.electronicVideo) add(VideoStabilizationMode.Standard)
+                    if (capability.stabilization.optical) add(VideoStabilizationMode.Optical)
+                }
+                CameraMode.Photo,
+                CameraMode.Portrait,
+                CameraMode.Pro,
+                CameraMode.Documents,
+                CameraMode.Night,
+                CameraMode.PanoramaExperimental,
+                -> if (capability.stabilization.optical) add(VideoStabilizationMode.Optical)
+                else -> Unit
+            }
+            if (size > 1) add(VideoStabilizationMode.Auto)
+        }
+    }
+
+    fun resolve(
+        requested: VideoStabilizationMode,
+        capability: CameraCapability,
+        mode: CameraMode,
+    ): StabilizationDecision = resolve(requested, capability.stabilization, mode)
+
+    fun resolve(
+        requested: VideoStabilizationMode,
+        support: StabilizationSupport,
+        mode: CameraMode,
+    ): StabilizationDecision {
+        val supported = supportedModes(support, mode)
+        val effective = when {
+            requested == VideoStabilizationMode.Auto -> listOf(
+                VideoStabilizationMode.Preview,
+                VideoStabilizationMode.Standard,
+                VideoStabilizationMode.Optical,
+                VideoStabilizationMode.Off,
+            ).first { it in supported }
+            requested in supported -> requested
+            else -> VideoStabilizationMode.Off
+        }
+        val reason = when {
+            effective == requested -> null
+            requested == VideoStabilizationMode.Auto -> "Auto selected ${effective.name} from Android-reported modes."
+            else -> "${requested.name} is incompatible with ${mode.name}; stabilization was disabled."
+        }
+        return StabilizationDecision(
+            requested = requested,
+            effective = effective,
+            supported = supported,
+            fallbackReason = reason,
+        )
+    }
+
+    private fun supportedModes(
+        support: StabilizationSupport,
+        mode: CameraMode,
+    ): List<VideoStabilizationMode> {
+        if (
+            mode == CameraMode.MaximumResolution ||
+            mode == CameraMode.HighFrameRate ||
+            mode == CameraMode.SlowMotion ||
+            mode == CameraMode.Burst
+        ) {
+            return listOf(VideoStabilizationMode.Off)
+        }
+        return buildList {
+            add(VideoStabilizationMode.Off)
+            when (mode) {
+                CameraMode.Video, CameraMode.TimeLapse -> {
+                    if (support.preview) add(VideoStabilizationMode.Preview)
+                    if (support.electronicVideo) add(VideoStabilizationMode.Standard)
+                    if (support.optical) add(VideoStabilizationMode.Optical)
+                }
+                else -> if (support.optical) add(VideoStabilizationMode.Optical)
+            }
+            if (size > 1) add(VideoStabilizationMode.Auto)
         }
     }
 }
+
+data class StabilizationDecision(
+    val requested: VideoStabilizationMode,
+    val effective: VideoStabilizationMode,
+    val supported: List<VideoStabilizationMode>,
+    val fallbackReason: String?,
+)
 
 class DefaultExtensionResolver : ExtensionResolver {
     override fun availableExtensions(capability: CameraCapability): ExtensionSupport = capability.extensions
