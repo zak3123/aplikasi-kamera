@@ -26,6 +26,7 @@ import com.fatih.adaptivecompositioncamera.utility.FloatPoint
 import com.fatih.adaptivecompositioncamera.ui.camera.professionalGuideCatalog
 import com.fatih.adaptivecompositioncamera.ui.camera.CameraUiTokens
 import com.fatih.adaptivecompositioncamera.ui.camera.cameraUiLayoutPolicy
+import com.fatih.adaptivecompositioncamera.ui.camera.modeResolutionKey
 import kotlin.math.cos
 import kotlin.math.sin
 import org.junit.Assert.assertEquals
@@ -250,6 +251,14 @@ class CameraMathTest {
         val resolved = CameraConfigurationResolver().resolve(capability, CameraMode.Video, resolution(8000, 6000))
         assertEquals(CameraMode.Photo, resolved.mode)
         assertSame(twelve, resolved.resolution)
+    }
+
+    @Test
+    fun modeResolutionPreferencesAreIsolatedByCameraAndMode() {
+        assertEquals("0:Photo:photo", modeResolutionKey("0", CameraMode.Photo))
+        assertEquals("0:Pro:photo", modeResolutionKey("0", CameraMode.Pro))
+        assertEquals("2:Pro:photo", modeResolutionKey("2", CameraMode.Pro))
+        assertTrue(modeResolutionKey("0", CameraMode.Photo) != modeResolutionKey("0", CameraMode.Pro))
     }
 
     @Test
