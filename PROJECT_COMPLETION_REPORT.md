@@ -99,5 +99,5 @@
 ## Git and shutdown status
 
 - Intended final Git state after publication: clean branch `agent/professional-composition-guides`, pushed to `origin`.
-- Implementation commit: recorded in `BUILD_COMPLETION_STATUS.txt`.
+- Implementation commit: `acadae3` (`Improve capability-driven camera controls`).
 - Shutdown scheduled: NO. The current attached task did not request a shutdown action.
