@@ -4,11 +4,13 @@ import com.fatih.adaptivecompositioncamera.domain.model.CameraCapability
 import com.fatih.adaptivecompositioncamera.domain.model.CameraConfiguration
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
+import com.fatih.adaptivecompositioncamera.domain.model.CompositionGuide
 import com.fatih.adaptivecompositioncamera.domain.model.ExtensionResolver
 import com.fatih.adaptivecompositioncamera.domain.model.ExtensionSupport
 import com.fatih.adaptivecompositioncamera.domain.model.HighSpeedCapabilityProvider
 import com.fatih.adaptivecompositioncamera.domain.model.HighSpeedVideoOption
 import com.fatih.adaptivecompositioncamera.domain.model.LensFacing
+import com.fatih.adaptivecompositioncamera.domain.model.ModeCompatibilityResult
 import com.fatih.adaptivecompositioncamera.domain.model.StabilizationResolver
 import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
 import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
@@ -16,14 +18,22 @@ import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
 class CameraConfigurationResolver {
     fun availableModes(capability: CameraCapability): List<CameraMode> = buildList {
         add(CameraMode.Photo)
+        if (capability.extensions.bokeh) add(CameraMode.Portrait)
         if (capability.videoResolutions.isNotEmpty()) add(CameraMode.Video)
         add(CameraMode.Documents)
         if (capability.supportsManualSensor) add(CameraMode.Pro)
+        if (capability.extensions.night) add(CameraMode.Night)
         val recommended = capability.jpegResolutions.firstOrNull { it.recommended }
         val maximum = capability.displayMaximumResolution
         if (maximum != null && recommended != null && maximum.megapixels > recommended.megapixels * 1.2) {
             add(CameraMode.MaximumResolution)
         }
+        if (capability.highSpeedVideo.isNotEmpty()) {
+            add(CameraMode.SlowMotion)
+            add(CameraMode.HighFrameRate)
+        }
+        if (capability.videoResolutions.isNotEmpty()) add(CameraMode.TimeLapse)
+        if (capability.supportsBurst) add(CameraMode.Burst)
     }
 
     fun safeResolution(capability: CameraCapability, requested: CameraResolution?): CameraResolution? {
@@ -51,6 +61,12 @@ class CameraConfigurationResolver {
 class ModeConflictResolver {
     fun resolve(configuration: CameraConfiguration, capability: CameraCapability): CameraConfiguration {
         return when (configuration.mode) {
+            CameraMode.Documents -> configuration.copy(stabilizationEnabled = capability.stabilization.optical)
+            CameraMode.Video -> configuration.copy(
+                resolution = configuration.resolution?.takeIf { capability.videoResolutions.any { video ->
+                    video.width == it.width && video.height == it.height
+                } } ?: configuration.resolution,
+            )
             CameraMode.SlowMotion, CameraMode.HighFrameRate -> configuration.copy(
                 stabilizationEnabled = false,
                 resolution = capability.jpegResolutions.firstOrNull { resolution ->
@@ -60,6 +76,55 @@ class ModeConflictResolver {
             CameraMode.MaximumResolution -> configuration.copy(stabilizationEnabled = false)
             else -> configuration
         }
+    }
+
+    fun isCompositionAllowed(mode: CameraMode, guide: CompositionGuide): Boolean {
+        if (guide == CompositionGuide.None) return true
+        return when (mode) {
+            CameraMode.Documents -> false
+            CameraMode.Video,
+            CameraMode.SlowMotion,
+            CameraMode.HighFrameRate,
+            CameraMode.TimeLapse,
+            -> guide in setOf(
+                CompositionGuide.RuleOfThirds,
+                CompositionGuide.Centered,
+                CompositionGuide.HorizonLevel,
+            )
+            else -> true
+        }
+    }
+
+    fun resolveModeChange(
+        currentMode: CameraMode,
+        requestedMode: CameraMode,
+        currentGuide: CompositionGuide,
+        previousPhotoGuide: CompositionGuide,
+    ): ModeCompatibilityResult {
+        val guide = when {
+            requestedMode == CameraMode.Documents -> CompositionGuide.None
+            currentMode == CameraMode.Documents && currentGuide == CompositionGuide.None -> previousPhotoGuide
+            isCompositionAllowed(requestedMode, currentGuide) -> currentGuide
+            else -> CompositionGuide.None
+        }
+        return ModeCompatibilityResult(
+            mode = requestedMode,
+            guide = guide,
+            closeMoreSelector = true,
+            closeProControls = requestedMode != CameraMode.Pro,
+            closeCompositionSelector = requestedMode == CameraMode.Documents,
+            stopDocumentAnalysis = currentMode == CameraMode.Documents && requestedMode != CameraMode.Documents,
+            stopVideoRecording = currentMode == CameraMode.Video && requestedMode != CameraMode.Video,
+            reason = when {
+                requestedMode == CameraMode.Documents && currentGuide != CompositionGuide.None ->
+                    "Document mode uses its own document frame; photo composition guides were hidden."
+                currentMode == CameraMode.Documents && guide != currentGuide ->
+                    "Photo composition guide restored."
+                !isCompositionAllowed(requestedMode, currentGuide) ->
+                    "The selected guide is unavailable in ${requestedMode.name} mode."
+                else -> null
+            },
+        )
     }
 }
 

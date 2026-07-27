@@ -2,6 +2,8 @@
 
 Completion time: 2026-07-27 21:02:21 +07:00
 
+Update time: 2026-07-28 05:29 +07:00
+
 ## Scope
 
 This pass repaired the existing native Compose camera presentation layer in place. It did not create a duplicate app, duplicate camera repository, WebView UI, or sample-camera replacement.
@@ -13,6 +15,9 @@ This pass repaired the existing native Compose camera presentation layer in plac
 - Portrait bottom controls remain constrained and preview-first.
 - Landscape keeps a separate capture rail and mode rail instead of compressing the portrait layout.
 - The selected advanced mode now appears by name in the mode selector. `More` is no longer highlighted after choosing Pro, Document, or Maximum Resolution.
+- Selecting a mode from `More` now closes the selector through the central mode-change path.
+- `More` is not represented as a persisted capture mode.
+- Document mode hides normal photo aspect/resolution controls from the top bar.
 
 ## Pro Mode
 
@@ -21,11 +26,21 @@ This pass repaired the existing native Compose camera presentation layer in plac
 - The detailed control area dismisses automatically after a short delay.
 - Entering Pro no longer silently changes a high-resolution selection to a lower recommended JPEG.
 - Pro mode now warns if a high-resolution setting may be rejected instead of silently downgrading.
+- Leaving Pro through any non-Pro mode closes the Pro details panel and resets manual capture requests.
+
+## Document Mode
+
+- Document mode now renders only `DocumentGuideOverlay`.
+- Normal composition overlays are not drawn in Document mode.
+- The composition selector icon is hidden in Document mode.
+- The previous compatible photo guide is restored after leaving Document.
 
 ## Resolution State
 
 - In-session resolution keys are isolated by camera ID and mode.
 - Normal Photo and Pro Photo no longer share one active resolution state inside the camera screen.
+- Document final capture and Document analysis now have separate resolution keys.
+- Video-family modes use a separate video resolution scope.
 - Pro resolution changes are not persisted as the camera default.
 - A regression test covers mode-specific resolution keys.
 

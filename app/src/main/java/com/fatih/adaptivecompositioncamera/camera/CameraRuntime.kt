@@ -108,6 +108,7 @@ class CameraRuntime(
     private var requestedStabilization = VideoStabilizationMode.Off
     private var activeCameraId: String? = null
     private var activeRequestedResolution: CameraResolution? = null
+    private var activeMode: CameraMode = CameraMode.Photo
 
     @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
     fun bind(
@@ -132,6 +133,7 @@ class CameraRuntime(
         _state.value = CameraSessionState.Binding
         activeCameraId = cameraId
         activeRequestedResolution = resolution
+        activeMode = mode
         CameraEvidenceLogger.record(
             context,
             "CAMERAX_BIND",
@@ -567,7 +569,7 @@ class CameraRuntime(
         manualExposureNanos = null
         manualFocusDistance = null
         manualWhiteBalanceMode = CameraMetadata.CONTROL_AWB_MODE_AUTO
-        _state.value = CameraSessionState.Ready
+        _state.value = readyStateFor(activeMode)
         CameraEvidenceLogger.record(
             context,
             "CAMERAX_BOUND",
@@ -708,7 +710,7 @@ class CameraRuntime(
                     val ready = ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }
                     context.contentResolver.update(uri, ready, null, null)
                 }
-                _state.value = CameraSessionState.Ready
+                _state.value = readyStateFor(activeMode)
                 if (uri != null) {
                     val actual = readJpegDimensions(uri)
                     CameraEvidenceLogger.record(
@@ -779,7 +781,7 @@ class CameraRuntime(
                 is VideoRecordEvent.Finalize -> {
                     _state.value = if (event.hasError()) {
                         CameraSessionState.Error("Video recording failed with error ${event.error}.")
-                    } else CameraSessionState.Ready
+                    } else readyStateFor(activeMode)
                 }
                 else -> Unit
             }
@@ -842,7 +844,9 @@ class CameraRuntime(
         ).setAutoCancelDuration(3, TimeUnit.SECONDS).build()
         _state.value = CameraSessionState.Focusing
         val future = control.startFocusAndMetering(action)
-        future.addListener({ if (_state.value == CameraSessionState.Focusing) _state.value = CameraSessionState.Ready }, mainExecutor)
+        future.addListener({
+            if (_state.value == CameraSessionState.Focusing) _state.value = readyStateFor(activeMode)
+        }, mainExecutor)
     }
 
     fun setExposure(index: Int): Int {
@@ -908,6 +912,18 @@ class CameraRuntime(
         }.build()
         Camera2CameraControl.from(control).setCaptureRequestOptions(options)
         return true
+    }
+
+    private fun readyStateFor(mode: CameraMode): CameraSessionState = when (mode) {
+        CameraMode.Pro -> CameraSessionState.ProReady
+        CameraMode.Documents -> CameraSessionState.DocumentReady
+        CameraMode.Video -> CameraSessionState.VideoReady
+        CameraMode.MaximumResolution -> CameraSessionState.HighResolutionReady
+        CameraMode.SlowMotion,
+        CameraMode.HighFrameRate,
+        -> CameraSessionState.SlowMotionReady
+        CameraMode.TimeLapse -> CameraSessionState.TimeLapseReady
+        else -> CameraSessionState.PhotoReady
     }
 
     fun release() {

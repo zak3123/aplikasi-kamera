@@ -1,5 +1,38 @@
 # Project Completion Report
 
+## Current Status - 2026-07-28 05:29 +07:00
+
+Status: incomplete because mandatory physical-device verification is not available.
+
+- Project directory: `D:\aplikasi-kamera`
+- Final local APK path: `D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.8.0-mode-fix-debug.apk`
+- APK file size: `25,144,956` bytes
+- APK SHA256: `004A51B9142F624FE1EE6BACE75218571E87B3675B47D09C093059ACF1A39CC7`
+- Build result: SUCCESS, `:app:assembleDebug`
+- Unit-test result: SUCCESS, `:app:testDebugUnitTest`
+- Lint result: SUCCESS, `:app:lintDebug`
+- Validation command: `gradlew.bat --no-daemon --no-parallel --max-workers=1 :app:assembleDebug :app:testDebugUnitTest :app:lintDebug`
+- JDK used: `D:\AdaptiveCompositionCameraTools\jdk-17`
+- ADB result: `adb devices -l` returned no connected devices.
+- Shutdown scheduled: false
+
+### Current Source Changes
+
+- `CameraModels.kt`: added mode categories, mode compatibility result, and mode-specific ready states.
+- `Resolvers.kt`: added capability-driven mode list expansion, composition compatibility rules, and central mode-change conflict result.
+- `CameraRuntime.kt`: replaced generic `Ready` transitions with mode-specific ready states.
+- `CameraScreen.kt`: routes all mode changes through `ModeConflictResolver`, hides composition guides in Document mode, restores previous photo guide after leaving Document, hides photo format chips in Document, and exposes stabilization controls per active mode.
+- `CameraSheets.kt`: stabilization sheet now hides video quality/FPS controls outside video modes.
+- `CameraMathTest.kt`: added tests for mode-specific resolution keys, Document guide suppression, Document-to-Pro restore behavior, and Video guide filtering.
+
+### Physical Verification Still Required
+
+- Actual JPEG dimensions from the POCO phone/tablet.
+- Camera2 capability logs from the connected device.
+- OIS/EIS/preview-stabilization CaptureResult metadata.
+- Required portrait and landscape screenshots under `artifacts\ui-verification\`.
+- Confirmation whether genuine 48 MP output is exposed and actually captured.
+
 > Superseded on 2026-07-28 by the v0.8.0 core-camera rewrite. The current
 > implementation is awaiting physical-device verification and is not complete.
 > See `CORE_CAMERA_REWRITE_EVIDENCE.md` and `BUILD_COMPLETION_STATUS.txt`.

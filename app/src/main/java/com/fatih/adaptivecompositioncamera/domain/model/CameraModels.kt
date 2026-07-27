@@ -28,6 +28,26 @@ enum class CameraMode {
     PanoramaExperimental,
 }
 
+val CameraMode.isStillPhotoMode: Boolean
+    get() = this in setOf(
+        CameraMode.Photo,
+        CameraMode.Portrait,
+        CameraMode.Pro,
+        CameraMode.Documents,
+        CameraMode.Night,
+        CameraMode.MaximumResolution,
+        CameraMode.Burst,
+        CameraMode.PanoramaExperimental,
+    )
+
+val CameraMode.isVideoMode: Boolean
+    get() = this in setOf(
+        CameraMode.Video,
+        CameraMode.SlowMotion,
+        CameraMode.HighFrameRate,
+        CameraMode.TimeLapse,
+    )
+
 @Serializable
 enum class PhotoAspectRatio {
     FullSensor,
@@ -278,10 +298,18 @@ data class CameraDiagnostics(
 )
 
 sealed interface CameraSessionState {
+    data object Uninitialized : CameraSessionState
     data object PermissionRequired : CameraSessionState
     data object Discovering : CameraSessionState
     data object Binding : CameraSessionState
     data object Ready : CameraSessionState
+    data object PhotoReady : CameraSessionState
+    data object ProReady : CameraSessionState
+    data object DocumentReady : CameraSessionState
+    data object VideoReady : CameraSessionState
+    data object HighResolutionReady : CameraSessionState
+    data object SlowMotionReady : CameraSessionState
+    data object TimeLapseReady : CameraSessionState
     data object Focusing : CameraSessionState
     data object Capturing : CameraSessionState
     data object StartingRecording : CameraSessionState
@@ -300,6 +328,17 @@ data class CameraConfiguration(
     val resolution: CameraResolution?,
     val flashMode: FlashMode = FlashMode.Off,
     val stabilizationEnabled: Boolean = false,
+)
+
+data class ModeCompatibilityResult(
+    val mode: CameraMode,
+    val guide: CompositionGuide,
+    val closeMoreSelector: Boolean = true,
+    val closeProControls: Boolean = false,
+    val closeCompositionSelector: Boolean = false,
+    val stopDocumentAnalysis: Boolean = false,
+    val stopVideoRecording: Boolean = false,
+    val reason: String? = null,
 )
 
 data class RuntimeCameraInfo(

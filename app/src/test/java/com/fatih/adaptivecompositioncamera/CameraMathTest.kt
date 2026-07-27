@@ -26,6 +26,7 @@ import com.fatih.adaptivecompositioncamera.utility.FloatPoint
 import com.fatih.adaptivecompositioncamera.ui.camera.professionalGuideCatalog
 import com.fatih.adaptivecompositioncamera.ui.camera.CameraUiTokens
 import com.fatih.adaptivecompositioncamera.ui.camera.cameraUiLayoutPolicy
+import com.fatih.adaptivecompositioncamera.ui.camera.documentAnalysisResolutionKey
 import com.fatih.adaptivecompositioncamera.ui.camera.modeResolutionKey
 import com.fatih.adaptivecompositioncamera.composition.perspectiveEdgePoints
 import kotlin.math.cos
@@ -257,9 +258,13 @@ class CameraMathTest {
     @Test
     fun modeResolutionPreferencesAreIsolatedByCameraAndMode() {
         assertEquals("0:Photo:photo", modeResolutionKey("0", CameraMode.Photo))
-        assertEquals("0:Pro:photo", modeResolutionKey("0", CameraMode.Pro))
-        assertEquals("2:Pro:photo", modeResolutionKey("2", CameraMode.Pro))
+        assertEquals("0:Pro:pro-photo", modeResolutionKey("0", CameraMode.Pro))
+        assertEquals("2:Pro:pro-photo", modeResolutionKey("2", CameraMode.Pro))
+        assertEquals("0:Documents:document-final", modeResolutionKey("0", CameraMode.Documents))
+        assertEquals("0:Documents:analysis", documentAnalysisResolutionKey("0"))
+        assertEquals("0:Video:video", modeResolutionKey("0", CameraMode.Video))
         assertTrue(modeResolutionKey("0", CameraMode.Photo) != modeResolutionKey("0", CameraMode.Pro))
+        assertTrue(modeResolutionKey("0", CameraMode.Documents) != documentAnalysisResolutionKey("0"))
     }
 
     @Test
@@ -270,6 +275,53 @@ class CameraMathTest {
         )
         val requested = CameraConfiguration(LensFacing.Rear, "0", CameraMode.SlowMotion, resolution(1920, 1080), stabilizationEnabled = true)
         assertFalse(ModeConflictResolver().resolve(requested, capability).stabilizationEnabled)
+    }
+
+    @Test
+    fun documentModeDisablesPhotographyCompositionGuides() {
+        val resolver = ModeConflictResolver()
+        val result = resolver.resolveModeChange(
+            currentMode = CameraMode.Photo,
+            requestedMode = CameraMode.Documents,
+            currentGuide = CompositionGuide.GoldenSpiral,
+            previousPhotoGuide = CompositionGuide.GoldenSpiral,
+        )
+        assertEquals(CameraMode.Documents, result.mode)
+        assertEquals(CompositionGuide.None, result.guide)
+        assertTrue(result.closeMoreSelector)
+        assertTrue(result.closeProControls)
+        assertTrue(result.closeCompositionSelector)
+        assertFalse(resolver.isCompositionAllowed(CameraMode.Documents, CompositionGuide.RuleOfThirds))
+    }
+
+    @Test
+    fun leavingDocumentRestoresPreviousCompatiblePhotoGuide() {
+        val result = ModeConflictResolver().resolveModeChange(
+            currentMode = CameraMode.Documents,
+            requestedMode = CameraMode.Pro,
+            currentGuide = CompositionGuide.None,
+            previousPhotoGuide = CompositionGuide.GoldenSpiral,
+        )
+        assertEquals(CameraMode.Pro, result.mode)
+        assertEquals(CompositionGuide.GoldenSpiral, result.guide)
+        assertTrue(result.stopDocumentAnalysis)
+        assertFalse(result.closeProControls)
+    }
+
+    @Test
+    fun videoRejectsComplexPhotographyGuides() {
+        val resolver = ModeConflictResolver()
+        assertFalse(resolver.isCompositionAllowed(CameraMode.Video, CompositionGuide.GoldenSpiral))
+        assertTrue(resolver.isCompositionAllowed(CameraMode.Video, CompositionGuide.RuleOfThirds))
+        val result = resolver.resolveModeChange(
+            currentMode = CameraMode.Photo,
+            requestedMode = CameraMode.Video,
+            currentGuide = CompositionGuide.GoldenSpiral,
+            previousPhotoGuide = CompositionGuide.GoldenSpiral,
+        )
+        assertEquals(CameraMode.Video, result.mode)
+        assertEquals(CompositionGuide.None, result.guide)
+        assertTrue(result.closeProControls)
     }
 
     @Test

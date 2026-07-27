@@ -285,6 +285,7 @@ private fun Badge(text: String) {
 
 @Composable
 fun VideoSettingsSheet(
+    mode: CameraMode,
     supportedQualities: List<VideoQualitySetting>,
     selectedQuality: VideoQualitySetting,
     fpsRanges: List<VideoFpsRange>,
@@ -302,49 +303,61 @@ fun VideoSettingsSheet(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Text("Video configuration", style = MaterialTheme.typography.headlineSmall)
+            val videoMode = mode in setOf(
+                CameraMode.Video,
+                CameraMode.SlowMotion,
+                CameraMode.HighFrameRate,
+                CameraMode.TimeLapse,
+            )
+            Text(if (videoMode) "Video configuration" else "Stabilization", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Only CameraX qualities and Camera2 FPS/stabilization modes exposed by this lens are listed.",
+                if (videoMode) {
+                    "Only CameraX qualities and Camera2 FPS/stabilization modes exposed by this lens are listed."
+                } else {
+                    "Only stabilization modes exposed by Android for this lens and mode are listed."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
             )
-            Text("QUALITY", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                (listOf(VideoQualitySetting.Auto) + supportedQualities).distinct().forEach { quality ->
-                    FilterChip(
-                        selected = selectedQuality == quality,
-                        onClick = { onQuality(quality) },
-                        label = { Text(quality.videoLabel()) },
-                    )
+            if (videoMode) {
+                Text("QUALITY", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    (listOf(VideoQualitySetting.Auto) + supportedQualities).distinct().forEach { quality ->
+                        FilterChip(
+                            selected = selectedQuality == quality,
+                            onClick = { onQuality(quality) },
+                            label = { Text(quality.videoLabel()) },
+                        )
+                    }
                 }
-            }
-            if (supportedQualities.isEmpty()) {
-                Text("Waiting for CameraX quality discovery.", style = MaterialTheme.typography.bodySmall)
-            }
-            Text(
-                "FRAME RATE",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 14.dp),
-            )
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                fpsRanges.forEach { range ->
-                    FilterChip(
-                        selected = selectedFpsRange == range,
-                        onClick = { onFps(range) },
-                        label = { Text(range.label) },
-                    )
+                if (supportedQualities.isEmpty()) {
+                    Text("Waiting for CameraX quality discovery.", style = MaterialTheme.typography.bodySmall)
                 }
-            }
-            if (fpsRanges.isEmpty()) {
-                Text("Frame rate is camera-managed; no standard reported range can be selected.", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "FRAME RATE",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 14.dp),
+                )
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    fpsRanges.forEach { range ->
+                        FilterChip(
+                            selected = selectedFpsRange == range,
+                            onClick = { onFps(range) },
+                            label = { Text(range.label) },
+                        )
+                    }
+                }
+                if (fpsRanges.isEmpty()) {
+                    Text("Frame rate is camera-managed; no standard reported range can be selected.", style = MaterialTheme.typography.bodySmall)
+                }
             }
             Text(
                 "STABILIZATION",

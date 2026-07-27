@@ -111,6 +111,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.fatih.adaptivecompositioncamera.camera.CameraRuntime
 import com.fatih.adaptivecompositioncamera.capability.CameraConfigurationResolver
+import com.fatih.adaptivecompositioncamera.capability.DefaultStabilizationResolver
+import com.fatih.adaptivecompositioncamera.capability.ModeConflictResolver
 import com.fatih.adaptivecompositioncamera.composition.CompositionGuideOverlay
 import com.fatih.adaptivecompositioncamera.composition.rememberLevelReading
 import com.fatih.adaptivecompositioncamera.domain.model.AppSettings
@@ -179,6 +181,8 @@ fun CameraScreen(
     val runtime = remember { CameraRuntime(context.applicationContext) }
     val mediaRepository = remember { AndroidMediaRepository() }
     val configurationResolver = remember { CameraConfigurationResolver() }
+    val modeConflictResolver = remember { ModeConflictResolver() }
+    val stabilizationResolver = remember { DefaultStabilizationResolver() }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -235,9 +239,12 @@ fun CameraScreen(
             .distinctBy { it.max }
             .sortedBy { it.max }
     }
-    val videoStabilizationOptions = remember(activeCapability) {
-        activeCapability?.stabilization?.let(CameraMath::stabilizationModes)
-            ?: listOf(VideoStabilizationMode.Unsupported)
+    val videoStabilizationOptions = remember(activeCapability, settings.mode) {
+        activeCapability?.let { capability ->
+            stabilizationResolver.supportedModes(capability, settings.mode)
+                .takeIf { modes -> modes.any { it != VideoStabilizationMode.Off } }
+                ?: emptyList()
+        } ?: emptyList()
     }
 
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
@@ -315,6 +322,10 @@ fun CameraScreen(
     var showMoreSheet by remember { mutableStateOf(false) }
     var showVideoSettingsSheet by remember { mutableStateOf(false) }
     var guideStyle by remember { mutableStateOf(GuideStyle()) }
+    var previousPhotoGuide by remember {
+        mutableStateOf(settings.guide.takeIf { it != CompositionGuide.None } ?: CompositionGuide.RuleOfThirds)
+    }
+    var previousMode by remember { mutableStateOf(settings.mode) }
     var vanishingPoint by remember { mutableStateOf(Offset(0.5f, 0.45f)) }
     var frameBounds by remember { mutableStateOf(Rect(0.18f, 0.20f, 0.82f, 0.80f)) }
     var eyeLineFraction by remember { mutableFloatStateOf(0.36f) }
@@ -358,16 +369,48 @@ fun CameraScreen(
             }
         }
     }
+    LaunchedEffect(settings.mode, settings.guide) {
+        if (
+            settings.mode != CameraMode.Documents &&
+            settings.guide != CompositionGuide.None &&
+            modeConflictResolver.isCompositionAllowed(settings.mode, settings.guide)
+        ) {
+            previousPhotoGuide = settings.guide
+        }
+        if (settings.mode == CameraMode.Documents) {
+            showCompositionSheet = false
+            proDetailsVisible = false
+            proManualExposure = false
+            proManualFocus = false
+            proWhiteBalance = CameraMetadata.CONTROL_AWB_MODE_AUTO
+            runtime.resetProControls()
+            if (settings.guide != CompositionGuide.None) onGuideChange(CompositionGuide.None)
+        } else if (!modeConflictResolver.isCompositionAllowed(settings.mode, settings.guide)) {
+            showCompositionSheet = false
+            onGuideChange(CompositionGuide.None)
+        }
+        if (
+            previousMode == CameraMode.Documents &&
+            settings.mode != CameraMode.Documents &&
+            settings.guide == CompositionGuide.None &&
+            previousPhotoGuide != CompositionGuide.None
+        ) {
+            onGuideChange(previousPhotoGuide)
+        }
+        previousMode = settings.mode
+    }
     LaunchedEffect(activeCameraId, videoFpsOptions, videoStabilizationOptions) {
         if (videoFpsRange !in videoFpsOptions) {
             videoFpsRange = videoFpsOptions.firstOrNull { it.max == 30 } ?: videoFpsOptions.lastOrNull()
         }
-        if (
-            videoStabilization !in videoStabilizationOptions &&
-            videoStabilization != VideoStabilizationMode.Auto
-        ) {
-            videoStabilization = videoStabilizationOptions.firstOrNull()
-                ?: VideoStabilizationMode.Unsupported
+        if (videoStabilizationOptions.isEmpty()) {
+            videoStabilization = VideoStabilizationMode.Unsupported
+        } else if (videoStabilization !in videoStabilizationOptions) {
+            videoStabilization = if (VideoStabilizationMode.Auto in videoStabilizationOptions) {
+                VideoStabilizationMode.Auto
+            } else {
+                videoStabilizationOptions.first()
+            }
         }
     }
     LaunchedEffect(
@@ -736,17 +779,27 @@ fun CameraScreen(
     }
 
     fun selectMode(mode: CameraMode) {
+        val resolved = modeConflictResolver.resolveModeChange(
+            currentMode = settings.mode,
+            requestedMode = mode,
+            currentGuide = settings.guide,
+            previousPhotoGuide = previousPhotoGuide,
+        )
+        showMoreSheet = false
+        if (resolved.closeCompositionSelector) showCompositionSheet = false
         if (mode == CameraMode.Pro && selectedResolution?.let { it.highResolution || it.maximumSensorMode } == true) {
             onMessage("Pro keeps the current resolution. If this camera rejects it, choose another Pro resolution manually.")
         }
-        if (mode != CameraMode.Pro) {
+        if (resolved.closeProControls) {
             proManualExposure = false
             proManualFocus = false
             proDetailsVisible = false
             proWhiteBalance = CameraMetadata.CONTROL_AWB_MODE_AUTO
             runtime.resetProControls()
         }
-        onModeChange(mode)
+        if (settings.guide != resolved.guide) onGuideChange(resolved.guide)
+        resolved.reason?.let(onMessage)
+        onModeChange(resolved.mode)
     }
 
     var lastVolumeShutterEvent by remember { mutableIntStateOf(volumeShutterEvent) }
@@ -840,22 +893,22 @@ fun CameraScreen(
             )
 
             Box(frameModifier) {
-                CompositionGuideOverlay(
-                    guide = settings.guide,
-                    mirrored = mirrorPreview,
-                    style = guideStyle,
-                    levelReading = levelReading,
-                    vanishingPoint = vanishingPoint,
-                    frameBounds = frameBounds,
-                    eyeLineFraction = eyeLineFraction,
-                    modifier = Modifier.fillMaxSize(),
-                )
-
                 if (settings.mode == CameraMode.Documents) {
                     DocumentGuideOverlay(Modifier.fillMaxSize())
+                } else {
+                    CompositionGuideOverlay(
+                        guide = settings.guide,
+                        mirrored = mirrorPreview,
+                        style = guideStyle,
+                        levelReading = levelReading,
+                        vanishingPoint = vanishingPoint,
+                        frameBounds = frameBounds,
+                        eyeLineFraction = eyeLineFraction,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
 
-                if (!guideStyle.overlayLocked) {
+                if (settings.mode != CameraMode.Documents && !guideStyle.overlayLocked) {
                     InteractiveGuideLayer(
                         guide = settings.guide,
                         vanishingPoint = vanishingPoint,
@@ -900,6 +953,7 @@ fun CameraScreen(
                 },
                 timerSeconds = timerSeconds,
                 onTimer = { timerSeconds = timerSeconds.nextTimer() },
+                captureFormatControlsVisible = settings.mode != CameraMode.Documents,
                 aspectRatioLabel = if (settings.mode == CameraMode.Video) {
                     runtimeInfo.requestedFpsRange?.let { "${it.max} FPS" } ?: "FPS"
                 } else effectivePhotoAspect.shortLabel(),
@@ -920,9 +974,14 @@ fun CameraScreen(
                         showVideoSettingsSheet = true
                     } else if (resolutions.isNotEmpty()) showResolutionSheet = true
                 },
-                videoStatusLabel = if (settings.mode == CameraMode.Video) videoStabilization.shortLabel() else null,
+                videoStatusLabel = if (videoStabilizationOptions.isNotEmpty()) {
+                    videoStabilization.shortLabel()
+                } else {
+                    null
+                },
                 onVideoStatus = { showVideoSettingsSheet = true },
-                compositionActive = settings.guide != CompositionGuide.None,
+                compositionVisible = settings.mode != CameraMode.Documents,
+                compositionActive = settings.mode != CameraMode.Documents && settings.guide != CompositionGuide.None,
                 onComposition = { showCompositionSheet = true },
                 onSettings = onOpenSettings,
             )
@@ -1107,6 +1166,7 @@ fun CameraScreen(
     }
     if (showVideoSettingsSheet) {
         VideoSettingsSheet(
+            mode = settings.mode,
             supportedQualities = runtimeInfo.supportedVideoQualities,
             selectedQuality = videoQuality,
             fpsRanges = videoFpsOptions,
@@ -1210,7 +1270,21 @@ private fun CaptureFrameOverlay(
 
 private enum class ProControl { Iso, Shutter, WhiteBalance, Focus, Exposure }
 
-internal fun modeResolutionKey(cameraId: String, mode: CameraMode): String = "$cameraId:${mode.name}:photo"
+internal fun modeResolutionKey(cameraId: String, mode: CameraMode): String = "$cameraId:${mode.name}:${mode.resolutionScope()}"
+
+internal fun documentAnalysisResolutionKey(cameraId: String): String = "$cameraId:${CameraMode.Documents.name}:analysis"
+
+private fun CameraMode.resolutionScope(): String = when (this) {
+    CameraMode.Video,
+    CameraMode.SlowMotion,
+    CameraMode.HighFrameRate,
+    CameraMode.TimeLapse,
+    -> "video"
+    CameraMode.Documents -> "document-final"
+    CameraMode.Pro -> "pro-photo"
+    CameraMode.MaximumResolution -> "maximum-photo"
+    else -> "photo"
+}
 
 @Composable
 private fun ProControlPanel(
@@ -1467,12 +1541,14 @@ private fun CameraTopBar(
     onFlash: () -> Unit,
     timerSeconds: Int,
     onTimer: () -> Unit,
+    captureFormatControlsVisible: Boolean,
     aspectRatioLabel: String?,
     resolutionLabel: String?,
     onAspectRatio: () -> Unit,
     onResolution: () -> Unit,
     videoStatusLabel: String?,
     onVideoStatus: () -> Unit,
+    compositionVisible: Boolean,
     compositionActive: Boolean,
     onComposition: () -> Unit,
     onSettings: () -> Unit,
@@ -1496,8 +1572,10 @@ private fun CameraTopBar(
             )
         }
         TopControl(Icons.Rounded.Timer, "Self timer", if (timerSeconds == 0) null else "${timerSeconds}s", onTimer)
-        TopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio)
-        TopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution)
+        if (captureFormatControlsVisible) {
+            TopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio)
+            TopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution)
+        }
         if (videoStatusLabel != null) {
             TopControl(
                 Icons.Rounded.CameraAlt,
@@ -1507,13 +1585,15 @@ private fun CameraTopBar(
                 active = videoStatusLabel != "OFF" && videoStatusLabel != "N/A",
             )
         }
-        TopControl(
-            Icons.Rounded.GridOn,
-            "Composition guides",
-            null,
-            onComposition,
-            active = compositionActive,
-        )
+        if (compositionVisible) {
+            TopControl(
+                Icons.Rounded.GridOn,
+                "Composition guides",
+                null,
+                onComposition,
+                active = compositionActive,
+            )
+        }
         TopControl(Icons.Rounded.Settings, "Settings", null, onSettings)
     }
 }
