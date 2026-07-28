@@ -45,12 +45,9 @@ object CameraMath {
             4.0 / 3.0 to "4:3",
             3.0 / 2.0 to "3:2",
             16.0 / 9.0 to "16:9",
-            20.0 / 9.0 to "20:9",
-            PHI.toDouble() to "Phi",
         ).minByOrNull { abs(ratio - it.first) }
         if (common != null && abs(ratio - common.first) <= 0.06) return common.second
-        val gcd = gcd(width, height)
-        return "${maxOf(width, height) / gcd}:${minOf(width, height) / gcd}"
+        return if (ratio > 1.9) "Wide crop" else "Full"
     }
 
     fun sortResolutions(sizes: List<Size>, format: String): List<CameraResolution> {
@@ -376,10 +373,6 @@ object CameraMath {
             pixels in 8_000_000L..14_000_000L
         }
         return if (twelveMp >= 0) twelveMp else lastIndex.coerceAtLeast(0)
-    }
-
-    private tailrec fun gcd(a: Int, b: Int): Int {
-        return if (b == 0) abs(a) else gcd(b, a % b)
     }
 
     private fun Int.evenDimension(maximum: Int): Int = coerceIn(2, maximum).let { if (it % 2 == 0) it else it - 1 }

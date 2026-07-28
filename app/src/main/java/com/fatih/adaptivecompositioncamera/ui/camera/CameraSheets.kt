@@ -13,15 +13,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CameraAlt
@@ -47,6 +50,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.fatih.adaptivecompositioncamera.composition.CompositionGuideOverlay
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
@@ -752,84 +757,118 @@ fun MoreModesSheet(
     onSelect: (CameraMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
-            Text("More modes", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "Only modes with a working capture path for this lens are shown.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 3.dp, bottom = 10.dp),
-            )
-            val additional = modes.filterNot { it in listOf(CameraMode.Portrait, CameraMode.Photo, CameraMode.Video) }
-            if (additional.isEmpty()) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                ) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.92f))
+                .clickable(onClick = onDismiss),
+        ) {
+            val primaryModes = listOf(CameraMode.Photo, CameraMode.Video).filter { it in modes }
+            val additional = modes.filterNot { it in primaryModes }
+            Column(
+                Modifier
+                    .align(Alignment.Center)
+                    .widthIn(max = 520.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 28.dp)
+                    .clickable(enabled = false) {},
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(26.dp),
+            ) {
+                (additional.ifEmpty { primaryModes }).chunked(3).forEach { rowModes ->
                     Row(
-                        Modifier.padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Icon(Icons.Rounded.Info, contentDescription = null)
-                        Column {
-                            Text("No extra modes for this lens", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "Photo and Video remain available. Advanced modes appear only when Android exposes a compatible capture configuration.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            } else {
-                additional.chunked(2).forEach { rowModes ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         rowModes.forEach { mode ->
-                            val selected = mode == activeMode
-                            Surface(
+                            StockModeGridItem(
+                                mode = mode,
+                                active = mode == activeMode,
+                                maxResolution = maxResolution,
                                 onClick = {
                                     onSelect(mode)
                                     onDismiss()
                                 },
-                                color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceContainerHigh,
-                                shape = MaterialTheme.shapes.large,
-                                modifier = Modifier.weight(1f).aspectRatio(1.45f),
-                            ) {
-                                Column(
-                                    Modifier.padding(14.dp),
-                                    verticalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Row(
-                                        Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                    ) {
-                                        Icon(mode.icon(), contentDescription = null, modifier = Modifier.size(28.dp))
-                                        if (selected) Icon(Icons.Rounded.Check, "Selected mode")
-                                    }
-                                    Column {
-                                        Text(mode.label(maxResolution), style = MaterialTheme.typography.titleMedium)
-                                        Text(
-                                            mode.description(),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 2,
-                                        )
-                                    }
-                                }
-                            }
+                                modifier = Modifier.weight(1f),
+                            )
                         }
-                        if (rowModes.size == 1) Box(Modifier.weight(1f))
+                        repeat(3 - rowModes.size) {
+                            Box(Modifier.weight(1f))
+                        }
                     }
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(38.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    primaryModes.forEach { mode ->
+                        Text(
+                            mode.label(maxResolution),
+                            color = if (mode == activeMode) Color(0xFFAEEA00) else Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clickable {
+                                    onSelect(mode)
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 4.dp, vertical = 12.dp),
+                        )
+                    }
+                    Text(
+                        "More",
+                        color = if (activeMode !in primaryModes) Color(0xFFAEEA00) else Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StockModeGridItem(
+    mode: CameraMode,
+    active: Boolean,
+    maxResolution: CameraResolution?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .heightIn(min = 86.dp)
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            Modifier
+                .size(54.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (active) Color.White.copy(alpha = 0.16f) else Color.Transparent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                mode.icon(),
+                contentDescription = mode.label(maxResolution),
+                tint = Color.White,
+                modifier = Modifier.size(31.dp),
+            )
+        }
+        Text(
+            mode.label(maxResolution),
+            color = if (active) Color(0xFFAEEA00) else Color.White,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            modifier = Modifier.padding(top = 7.dp),
+        )
     }
 }
 

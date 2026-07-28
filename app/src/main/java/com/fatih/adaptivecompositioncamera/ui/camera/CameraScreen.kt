@@ -8,12 +8,14 @@ import android.hardware.camera2.CameraMetadata
 import android.os.Build
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.OrientationEventListener
 import android.view.ScaleGestureDetector
 import android.view.Surface as AndroidSurface
 import androidx.camera.core.CameraSelector
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -48,6 +50,8 @@ import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.Collections
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FlashAuto
 import androidx.compose.material.icons.rounded.FlashOff
 import androidx.compose.material.icons.rounded.FlashOn
@@ -186,6 +190,11 @@ fun CameraScreen(
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val controlRotationTarget = rememberCameraControlRotationDegrees()
+    val controlRotationDegrees by animateFloatAsState(
+        targetValue = controlRotationTarget,
+        label = "camera-control-rotation",
+    )
 
     val availableCameras = remember(report) {
         report?.cameras.orEmpty().filter {
@@ -321,6 +330,7 @@ fun CameraScreen(
     var showCompositionSheet by remember { mutableStateOf(false) }
     var showMoreSheet by remember { mutableStateOf(false) }
     var showVideoSettingsSheet by remember { mutableStateOf(false) }
+    var showQuickSettings by remember { mutableStateOf(false) }
     var guideStyle by remember { mutableStateOf(GuideStyle()) }
     var previousPhotoGuide by remember {
         mutableStateOf(settings.guide.takeIf { it != CompositionGuide.None } ?: CompositionGuide.RuleOfThirds)
@@ -378,6 +388,7 @@ fun CameraScreen(
             previousPhotoGuide = settings.guide
         }
         if (settings.mode == CameraMode.Documents) {
+            showQuickSettings = false
             showCompositionSheet = false
             proDetailsVisible = false
             proManualExposure = false
@@ -386,6 +397,7 @@ fun CameraScreen(
             runtime.resetProControls()
             if (settings.guide != CompositionGuide.None) onGuideChange(CompositionGuide.None)
         } else if (!modeConflictResolver.isCompositionAllowed(settings.mode, settings.guide)) {
+            showQuickSettings = false
             showCompositionSheet = false
             onGuideChange(CompositionGuide.None)
         }
@@ -786,6 +798,7 @@ fun CameraScreen(
             previousPhotoGuide = previousPhotoGuide,
         )
         showMoreSheet = false
+        showQuickSettings = false
         if (resolved.closeCompositionSelector) showCompositionSheet = false
         if (mode == CameraMode.Pro && selectedResolution?.let { it.highResolution || it.maximumSensorMode } == true) {
             onMessage("Pro keeps the current resolution. If this camera rejects it, choose another Pro resolution manually.")
@@ -953,6 +966,8 @@ fun CameraScreen(
                 },
                 timerSeconds = timerSeconds,
                 onTimer = { timerSeconds = timerSeconds.nextTimer() },
+                quickSettingsExpanded = showQuickSettings,
+                onQuickSettings = { showQuickSettings = !showQuickSettings },
                 captureFormatControlsVisible = settings.mode != CameraMode.Documents,
                 aspectRatioLabel = if (settings.mode == CameraMode.Video) {
                     runtimeInfo.requestedFpsRange?.let { "${it.max} FPS" } ?: "FPS"
@@ -984,6 +999,48 @@ fun CameraScreen(
                 compositionActive = settings.mode != CameraMode.Documents && settings.guide != CompositionGuide.None,
                 onComposition = { showCompositionSheet = true },
                 onSettings = onOpenSettings,
+                controlRotationDegrees = controlRotationDegrees,
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showQuickSettings && !isRecording && !captureInProgress,
+            modifier = (if (policy.landscape) Modifier.align(Alignment.TopStart) else Modifier.align(Alignment.TopCenter))
+                .statusBarsPadding()
+                .displayCutoutPadding()
+                .padding(top = if (policy.landscape) 58.dp else 62.dp, start = 8.dp, end = 8.dp),
+        ) {
+            QuickSettingsPanel(
+                hasAspectRatio = settings.mode != CameraMode.Documents,
+                hasResolution = settings.mode != CameraMode.Documents,
+                hasComposition = settings.mode != CameraMode.Documents,
+                hasStabilization = videoStabilizationOptions.isNotEmpty(),
+                aspectRatioLabel = if (settings.mode == CameraMode.Video) "FPS" else effectivePhotoAspect.shortLabel(),
+                resolutionLabel = if (settings.mode == CameraMode.Video) {
+                    runtimeInfo.selectedVideoQuality.displayLabel()
+                } else estimatedOutputLabel,
+                stabilizationLabel = videoStabilization.takeUnless { it == VideoStabilizationMode.Unsupported }?.shortLabel(),
+                onAspectRatio = {
+                    showQuickSettings = false
+                    if (settings.mode == CameraMode.Video) showVideoSettingsSheet = true else showAspectSheet = true
+                },
+                onResolution = {
+                    showQuickSettings = false
+                    if (settings.mode == CameraMode.Video) showVideoSettingsSheet = true else showResolutionSheet = true
+                },
+                onComposition = {
+                    showQuickSettings = false
+                    showCompositionSheet = true
+                },
+                onStabilization = {
+                    showQuickSettings = false
+                    showVideoSettingsSheet = true
+                },
+                onSettings = {
+                    showQuickSettings = false
+                    onOpenSettings()
+                },
+                controlRotationDegrees = controlRotationDegrees,
             )
         }
 
@@ -1541,6 +1598,8 @@ private fun CameraTopBar(
     onFlash: () -> Unit,
     timerSeconds: Int,
     onTimer: () -> Unit,
+    quickSettingsExpanded: Boolean,
+    onQuickSettings: () -> Unit,
     captureFormatControlsVisible: Boolean,
     aspectRatioLabel: String?,
     resolutionLabel: String?,
@@ -1552,6 +1611,7 @@ private fun CameraTopBar(
     compositionActive: Boolean,
     onComposition: () -> Unit,
     onSettings: () -> Unit,
+    controlRotationDegrees: Float,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -1569,12 +1629,27 @@ private fun CameraTopBar(
                 description = "Flash ${flashMode.name}",
                 label = flashMode.takeUnless { it == FlashMode.Off }?.name,
                 onClick = onFlash,
+                rotationDegrees = controlRotationDegrees,
             )
         }
-        TopControl(Icons.Rounded.Timer, "Self timer", if (timerSeconds == 0) null else "${timerSeconds}s", onTimer)
+        TopControl(
+            if (quickSettingsExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+            "Quick camera controls",
+            null,
+            onQuickSettings,
+            active = quickSettingsExpanded,
+            rotationDegrees = controlRotationDegrees,
+        )
+        TopControl(
+            Icons.Rounded.Timer,
+            "Self timer",
+            if (timerSeconds == 0) null else "${timerSeconds}s",
+            onTimer,
+            rotationDegrees = controlRotationDegrees,
+        )
         if (captureFormatControlsVisible) {
-            TopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio)
-            TopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution)
+            TopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio, rotationDegrees = controlRotationDegrees)
+            TopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution, rotationDegrees = controlRotationDegrees)
         }
         if (videoStatusLabel != null) {
             TopControl(
@@ -1583,6 +1658,7 @@ private fun CameraTopBar(
                 videoStatusLabel,
                 onVideoStatus,
                 active = videoStatusLabel != "OFF" && videoStatusLabel != "N/A",
+                rotationDegrees = controlRotationDegrees,
             )
         }
         if (compositionVisible) {
@@ -1592,9 +1668,89 @@ private fun CameraTopBar(
                 null,
                 onComposition,
                 active = compositionActive,
+                rotationDegrees = controlRotationDegrees,
             )
         }
-        TopControl(Icons.Rounded.Settings, "Settings", null, onSettings)
+        TopControl(Icons.Rounded.Settings, "Settings", null, onSettings, rotationDegrees = controlRotationDegrees)
+    }
+}
+
+@Composable
+private fun QuickSettingsPanel(
+    hasAspectRatio: Boolean,
+    hasResolution: Boolean,
+    hasComposition: Boolean,
+    hasStabilization: Boolean,
+    aspectRatioLabel: String?,
+    resolutionLabel: String?,
+    stabilizationLabel: String?,
+    onAspectRatio: () -> Unit,
+    onResolution: () -> Unit,
+    onComposition: () -> Unit,
+    onStabilization: () -> Unit,
+    onSettings: () -> Unit,
+    controlRotationDegrees: Float,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.widthIn(max = 420.dp),
+        color = Color.Black.copy(alpha = 0.62f),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                if (hasAspectRatio) {
+                    QuickSettingsItem(Icons.Rounded.AspectRatio, aspectRatioLabel ?: "Aspect", "Aspect", onAspectRatio, controlRotationDegrees)
+                }
+                if (hasResolution) {
+                    QuickSettingsItem(Icons.Rounded.PhotoSizeSelectLarge, resolutionLabel ?: "MP", "Resolution", onResolution, controlRotationDegrees)
+                }
+                if (hasComposition) {
+                    QuickSettingsItem(Icons.Rounded.GridOn, "Grid", "Composition", onComposition, controlRotationDegrees)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                if (hasStabilization) {
+                    QuickSettingsItem(Icons.Rounded.CameraAlt, stabilizationLabel ?: "OFF", "Stabilization", onStabilization, controlRotationDegrees)
+                }
+                QuickSettingsItem(Icons.Rounded.Settings, "Settings", "Settings", onSettings, controlRotationDegrees)
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickSettingsItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    description: String,
+    onClick: () -> Unit,
+    rotationDegrees: Float,
+) {
+    Column(
+        modifier = Modifier
+            .heightIn(min = 66.dp)
+            .width(82.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = description,
+            tint = Color.White,
+            modifier = Modifier.size(24.dp).rotate(rotationDegrees),
+        )
+        Text(
+            label,
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 5.dp).rotate(rotationDegrees),
+        )
     }
 }
 
@@ -1605,6 +1761,7 @@ private fun TopControl(
     label: String?,
     onClick: () -> Unit,
     active: Boolean = false,
+    rotationDegrees: Float = 0f,
 ) {
     Column(Modifier.width(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
@@ -1631,7 +1788,7 @@ private fun TopControl(
                     icon,
                     contentDescription = description,
                     tint = if (active) Color.Black else Color.White,
-                    modifier = Modifier.size(CameraUiTokens.topIconSize),
+                    modifier = Modifier.size(CameraUiTokens.topIconSize).rotate(rotationDegrees),
                 )
             }
         }
@@ -1643,7 +1800,8 @@ private fun TopControl(
                 maxLines = 1,
                 overflow = TextOverflow.Clip,
                 softWrap = false,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.52f))
+                modifier = Modifier.rotate(rotationDegrees)
+                    .clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.52f))
                     .padding(horizontal = 5.dp, vertical = 1.dp),
             )
         }
@@ -2179,6 +2337,29 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
+}
+
+@Composable
+private fun rememberCameraControlRotationDegrees(): Float {
+    val context = LocalContext.current
+    var rotation by remember { mutableFloatStateOf(0f) }
+    DisposableEffect(context) {
+        val listener = object : OrientationEventListener(context.applicationContext) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+                val snapped = when {
+                    orientation >= 315 || orientation < 45 -> 0f
+                    orientation < 135 -> -90f
+                    orientation < 225 -> 180f
+                    else -> 90f
+                }
+                if (rotation != snapped) rotation = snapped
+            }
+        }
+        if (listener.canDetectOrientation()) listener.enable()
+        onDispose { listener.disable() }
+    }
+    return rotation
 }
 
 private fun Activity.setScreenBrightness(value: Float) {

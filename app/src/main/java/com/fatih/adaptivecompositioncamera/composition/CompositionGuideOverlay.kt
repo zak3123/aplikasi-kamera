@@ -298,37 +298,31 @@ private fun DrawScope.drawGoldenSpiral(
     val flipX = orientationFlipX xor mirrored xor !style.spiralClockwise xor style.spiralHorizontalFlip
     val flipY = orientationFlipY xor style.spiralVerticalFlip
     val pivot = Offset((fitted.left + fitted.right) / 2f, (fitted.top + fitted.bottom) / 2f)
+    val insetX = fitted.width * 0.03f
+    val insetY = fitted.height * 0.03f
     withTransform({
-        scale(if (flipX) -1f else 1f, if (flipY) -1f else 1f, pivot)
+        scale(if (flipX) -0.94f else 0.94f, if (flipY) -0.94f else 0.94f, pivot)
     }) {
-        clipRect(fitted.left, fitted.top, fitted.right, fitted.bottom) {
+        clipRect(fitted.left + insetX, fitted.top + insetY, fitted.right - insetX, fitted.bottom - insetY) {
             val subtleStroke = Stroke(
-                width = (stroke.width * 0.62f).coerceAtLeast(0.65.dp.toPx()),
+                width = (stroke.width * 0.46f).coerceAtLeast(0.55.dp.toPx()),
                 pathEffect = stroke.pathEffect,
             )
             val spiralStroke = Stroke(
-                width = stroke.width.coerceIn(0.9.dp.toPx(), 3.dp.toPx()),
+                width = stroke.width.coerceIn(0.75.dp.toPx(), 1.6.dp.toPx()),
                 pathEffect = stroke.pathEffect,
             )
             guideRect(
                 Rect(fitted.left, fitted.top, fitted.right, fitted.bottom),
-                color.copy(alpha = color.alpha * 0.32f),
+                color.copy(alpha = color.alpha * 0.18f),
                 subtleStroke,
                 false,
             )
-            arcs.take(8).forEach { arc ->
-                guideRect(
-                    Rect(arc.square.left, arc.square.top, arc.square.right, arc.square.bottom),
-                    color.copy(alpha = color.alpha * 0.26f),
-                    subtleStroke,
-                    false,
-                )
-            }
             if (style.outline) {
                 drawPath(
                     path,
-                    Color.Black.copy(alpha = 0.66f),
-                    style = Stroke(width = spiralStroke.width + 1.8.dp.toPx(), pathEffect = stroke.pathEffect),
+                    Color.Black.copy(alpha = 0.42f),
+                    style = Stroke(width = spiralStroke.width + 0.9.dp.toPx(), pathEffect = stroke.pathEffect),
                 )
             }
             drawPath(path, color, style = spiralStroke)

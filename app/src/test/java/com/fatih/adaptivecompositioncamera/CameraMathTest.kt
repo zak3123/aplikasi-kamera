@@ -10,6 +10,7 @@ import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
 import com.fatih.adaptivecompositioncamera.domain.model.CompositionGuide
 import com.fatih.adaptivecompositioncamera.domain.model.ExtensionSupport
+import com.fatih.adaptivecompositioncamera.domain.model.GuideStyle
 import com.fatih.adaptivecompositioncamera.domain.model.HardwareLevel
 import com.fatih.adaptivecompositioncamera.domain.model.HighSpeedVideoOption
 import com.fatih.adaptivecompositioncamera.domain.model.LensFacing
@@ -77,10 +78,18 @@ class CameraMathTest {
     fun aspectRatioUsesFriendlyCameraLabels() {
         assertEquals("4:3", CameraMath.aspectRatioLabel(4000, 3000))
         assertEquals("4:3", CameraMath.aspectRatioLabel(4624, 3472))
-        assertEquals("20:9", CameraMath.aspectRatioLabel(4624, 2080))
+        assertEquals("Wide crop", CameraMath.aspectRatioLabel(4624, 2080))
         assertEquals("16:9", CameraMath.aspectRatioLabel(3840, 2160))
         assertEquals("16:9", CameraMath.aspectRatioLabel(3264, 1836))
         assertEquals("1:1", CameraMath.aspectRatioLabel(3000, 3000))
+    }
+
+    @Test
+    fun defaultCompositionGuideStyleIsSubtle() {
+        val style = GuideStyle()
+        assertEquals(0.55f, style.opacity, 0.0f)
+        assertEquals(1.0f, style.thicknessDp, 0.0f)
+        assertFalse(style.outline)
     }
 
     @Test

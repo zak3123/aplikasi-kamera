@@ -98,10 +98,10 @@ data class VideoFpsRange(val min: Int, val max: Int) {
 
 data class GuideStyle(
     val colorArgb: Long = 0xFFFFFFFF,
-    val opacity: Float = 0.82f,
-    val thicknessDp: Float = 1.4f,
+    val opacity: Float = 0.55f,
+    val thicknessDp: Float = 1.0f,
     val lineStyle: GuideLineStyle = GuideLineStyle.Solid,
-    val outline: Boolean = true,
+    val outline: Boolean = false,
     val intersections: Boolean = true,
     val spiralOrientation: SpiralOrientation = SpiralOrientation.TopRight,
     val spiralClockwise: Boolean = true,

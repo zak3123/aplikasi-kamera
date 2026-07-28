@@ -4,6 +4,8 @@ Completion time: 2026-07-27 21:02:21 +07:00
 
 Update time: 2026-07-28 05:29 +07:00
 
+POCO-reference update time: 2026-07-28 09:01 +07:00
+
 ## Scope
 
 This pass repaired the existing native Compose camera presentation layer in place. It did not create a duplicate app, duplicate camera repository, WebView UI, or sample-camera replacement.
@@ -18,6 +20,10 @@ This pass repaired the existing native Compose camera presentation layer in plac
 - Selecting a mode from `More` now closes the selector through the central mode-change path.
 - `More` is not represented as a persisted capture mode.
 - Document mode hides normal photo aspect/resolution controls from the top bar.
+- The More interface is now a full-screen black mode overview with icon plus short label items, not a Material bottom sheet or card grid.
+- The top bar now has a compact expand/collapse quick-control affordance.
+- Expanded quick controls are shown in a small anchored dark panel instead of a settings dashboard.
+- Top control icons and labels use an `OrientationEventListener` driven rotation target with Compose animation.
 
 ## Pro Mode
 
@@ -48,6 +54,7 @@ This pass repaired the existing native Compose camera presentation layer in plac
 
 - Golden Spiral still uses the repaired single-path renderer from the previous pass.
 - The overlay is clipped to the fitted preview frame and does not draw over the control regions.
+- Golden Spiral was further reduced in visual weight: lower default opacity, thinner stroke, no default outline, no helper-square clutter.
 
 ## Unverified Visual Items
 
