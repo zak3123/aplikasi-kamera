@@ -117,6 +117,7 @@ import com.fatih.adaptivecompositioncamera.camera.CameraRuntime
 import com.fatih.adaptivecompositioncamera.capability.CameraConfigurationResolver
 import com.fatih.adaptivecompositioncamera.capability.DefaultStabilizationResolver
 import com.fatih.adaptivecompositioncamera.capability.ModeConflictResolver
+import com.fatih.adaptivecompositioncamera.capability.StabilizationRequestPlan
 import com.fatih.adaptivecompositioncamera.composition.CompositionGuideOverlay
 import com.fatih.adaptivecompositioncamera.composition.rememberLevelReading
 import com.fatih.adaptivecompositioncamera.domain.model.AppSettings
@@ -278,6 +279,22 @@ fun CameraScreen(
             },
         )
     }
+    val stabilizationDecision = remember(activeCapability, settings.mode, videoStabilization) {
+        activeCapability?.let { capability ->
+            stabilizationResolver.resolve(
+                requested = videoStabilization,
+                capability = capability,
+                mode = settings.mode,
+            )
+        }
+    }
+    val stabilizationRequestPlan = stabilizationDecision?.requestPlan
+    val stabilizationPlanLabel = stabilizationRequestPlan?.uiLabel() ?: videoStabilization.shortLabel()
+    val acceptedStabilizationLabel = stabilizationAcceptedShortLabel(
+        status = stabilizationStatus,
+        evidence = stabilizationEvidence,
+        fallback = stabilizationPlanLabel,
+    )
     var flashMode by remember { mutableStateOf(FlashMode.Off) }
     var timerSeconds by remember { mutableIntStateOf(0) }
     var countdown by remember { mutableIntStateOf(0) }
@@ -337,7 +354,7 @@ fun CameraScreen(
         sessionState = sessionState,
         activeCameraId = activeCameraId,
         selectedResolutionLabel = estimatedOutputLabel,
-        stabilizationLabel = videoStabilization.takeUnless { it == VideoStabilizationMode.Unsupported }?.shortLabel(),
+        stabilizationLabel = acceptedStabilizationLabel.takeIf { videoStabilizationOptions.isNotEmpty() },
         quickSettingsExpanded = showQuickSettings,
         moreSelectorVisible = showMoreSheet,
         compositionSelectorVisible = showCompositionSheet,
@@ -1028,7 +1045,7 @@ fun CameraScreen(
                 resolutionLabel = if (settings.mode == CameraMode.Video) {
                     runtimeInfo.selectedVideoQuality.displayLabel()
                 } else estimatedOutputLabel,
-                stabilizationLabel = videoStabilization.takeUnless { it == VideoStabilizationMode.Unsupported }?.shortLabel(),
+                stabilizationLabel = cameraUiState.stabilizationLabel,
                 onAspectRatio = {
                     showQuickSettings = false
                     if (settings.mode == CameraMode.Video) showVideoSettingsSheet = true else showAspectSheet = true
@@ -1241,6 +1258,10 @@ fun CameraScreen(
             stabilizationModes = videoStabilizationOptions,
             selectedStabilization = videoStabilization,
             stabilizationStatus = stabilizationStatus,
+            stabilizationEvidence = stabilizationEvidence,
+            stabilizationPlan = stabilizationRequestPlan,
+            effectiveStabilizationLabel = stabilizationPlanLabel,
+            acceptedStabilizationLabel = acceptedStabilizationLabel,
             onQuality = { videoQuality = it },
             onFps = { videoFpsRange = it },
             onStabilization = { videoStabilization = it },
@@ -2332,6 +2353,29 @@ private fun VideoStabilizationMode.shortLabel(): String = when (this) {
     VideoStabilizationMode.Optical -> "OIS"
     VideoStabilizationMode.Auto -> "AUTO"
     VideoStabilizationMode.Unsupported -> "N/A"
+}
+
+internal fun StabilizationRequestPlan.uiLabel(): String = evidenceLabel
+
+internal fun stabilizationAcceptedShortLabel(
+    status: String,
+    evidence: String,
+    fallback: String,
+): String {
+    val merged = "$status $evidence"
+    return when {
+        merged.contains("Preview stabilization active", ignoreCase = true) ||
+            merged.contains("resultEis=2", ignoreCase = true) -> "PRE"
+        merged.contains("EIS active", ignoreCase = true) ||
+            merged.contains("resultEis=1", ignoreCase = true) -> "EIS"
+        merged.contains("OIS active", ignoreCase = true) ||
+            merged.contains("resultOis=1", ignoreCase = true) -> "OIS"
+        merged.contains("Stabilization off", ignoreCase = true) ||
+            (merged.contains("resultEis=0", ignoreCase = true) && merged.contains("resultOis=0", ignoreCase = true)) -> "OFF"
+        merged.contains("pending", ignoreCase = true) ||
+            merged.contains("verifying", ignoreCase = true) -> fallback
+        else -> fallback
+    }
 }
 
 private fun PhotoAspectRatio.shortLabel(): String = when (this) {

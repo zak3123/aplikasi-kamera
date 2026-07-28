@@ -31,6 +31,7 @@ import com.fatih.adaptivecompositioncamera.ui.camera.CameraUiTokens
 import com.fatih.adaptivecompositioncamera.ui.camera.cameraUiLayoutPolicy
 import com.fatih.adaptivecompositioncamera.ui.camera.documentAnalysisResolutionKey
 import com.fatih.adaptivecompositioncamera.ui.camera.modeResolutionKey
+import com.fatih.adaptivecompositioncamera.ui.camera.stabilizationAcceptedShortLabel
 import com.fatih.adaptivecompositioncamera.composition.goldenSpiralGuideViewport
 import com.fatih.adaptivecompositioncamera.composition.perspectiveEdgePoints
 import com.fatih.adaptivecompositioncamera.domain.model.PhysicalCameraSummary
@@ -477,6 +478,42 @@ class CameraMathTest {
         assertTrue(videoAuto.requestPlan.requestPreviewStabilization)
         assertFalse(videoAuto.requestPlan.requestOis)
         assertEquals("PRE", videoAuto.requestPlan.evidenceLabel)
+    }
+
+    @Test
+    fun stabilizationUiAcceptedLabelComesFromCaptureResultEvidence() {
+        assertEquals(
+            "OIS",
+            stabilizationAcceptedShortLabel(
+                status = "OIS active",
+                evidence = "requestOis=1 resultOis=1 resultEis=0",
+                fallback = "AUTO",
+            ),
+        )
+        assertEquals(
+            "PRE",
+            stabilizationAcceptedShortLabel(
+                status = "Preview stabilization active",
+                evidence = "requestEis=2 resultEis=2 resultOis=0",
+                fallback = "AUTO",
+            ),
+        )
+        assertEquals(
+            "EIS",
+            stabilizationAcceptedShortLabel(
+                status = "EIS active",
+                evidence = "requestEis=1 resultEis=1 resultOis=0",
+                fallback = "AUTO",
+            ),
+        )
+        assertEquals(
+            "OFF",
+            stabilizationAcceptedShortLabel(
+                status = "Stabilization off",
+                evidence = "requestEis=0 requestOis=0 resultEis=0 resultOis=0",
+                fallback = "OIS",
+            ),
+        )
     }
 
     @Test

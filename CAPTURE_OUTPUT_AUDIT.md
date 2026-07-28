@@ -1,5 +1,19 @@
 # Capture Output Audit
 
+## Device Output Request - 2026-07-28 12:32 +07:00
+
+The requested maximum-resolution physical capture could not be performed because no ADB device was connected.
+
+Required evidence remains:
+
+- install `AdaptiveCompositionCamera-v0.8.2-stabilization-ui-debug.apk` on the POCO device
+- select the maximum-resolution option exposed by Android
+- capture one photo
+- read actual saved JPEG bounds without full decode
+- report width, height, megapixels, EXIF orientation, file size, camera ID, and sensor pixel mode
+
+48 MP must remain unverified until the actual saved JPEG is near 48 million pixels.
+
 ## Core Engine Update - 2026-07-28 12:13 +07:00
 
 Static pipeline changes:

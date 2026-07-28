@@ -1,5 +1,43 @@
 # Project Completion Report
 
+## Current Status - 2026-07-28 12:32 +07:00
+
+Status: incomplete because mandatory POCO install, stabilization-selector screenshot, real CaptureResult evidence, and maximum-resolution captured JPEG dimensions are still unavailable. `adb devices -l` returned no connected devices.
+
+- Project directory: `D:\aplikasi-kamera`
+- Final local APK path: `D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.8.2-stabilization-ui-debug.apk`
+- APK file size: `25,214,371` bytes
+- APK SHA256: `51F45E1E6FD5F240CEB00AD265C1375062D92EAE1F38AB2AA450D55B69EE787C`
+- Build result: SUCCESS, `:app:assembleDebug`
+- Unit-test result: SUCCESS, `:app:test`
+- Lint result: SUCCESS, `:app:lint`
+- Targeted test result: SUCCESS, `CameraMathTest`
+- Validation command: `gradlew.bat :app:assembleDebug :app:test :app:lint --no-daemon --max-workers=1 --console=plain`
+- ADB result: `adb devices -l` returned no connected devices.
+- Shutdown scheduled: false
+
+### Visible Stabilization UI Changes
+
+- `PocoStyleCameraChrome.kt`: replaced the ambiguous camera-icon stabilization affordance with a clearly visible circular `STAB` control showing `OFF`, `AUTO`, `OIS`, `EIS`, or `PRE`.
+- `CameraScreen.kt`: connects visible stabilization label to `DefaultStabilizationResolver` and `StabilizationRequestPlan`; after CaptureResult arrives, the label prefers accepted result evidence over the requested value.
+- `CameraSheets.kt`: stabilization sheet now shows supported options only plus Requested, Effective request, Accepted result, request plan booleans, status, and raw CaptureResult evidence.
+- `CameraMathTest.kt`: added accepted-result label tests for OIS, EIS, Preview Stabilization, and Off evidence parsing.
+
+### APK Static UI Proof
+
+Compared with `AdaptiveCompositionCamera-v0.8.1-core-engine-debug.apk`:
+
+- old `classes10.dex`: `905,420` bytes, SHA256 `ABF9B20A7EB9B926CAF2F31248523DD384E68906FC4E0CD6C9BBA442BA8E8B9C`
+- new `classes10.dex`: `926,704` bytes, SHA256 `DB81612F4D50F8F398979DAA6207E5D3E6D3285DF276176834FA8C823270CA42`
+
+### Physical Verification Still Required
+
+- Install APK on the POCO device.
+- Capture screenshots proving the STAB selector exists on the actual camera screen and in the stabilization sheet.
+- Record `STABILIZATION_REQUEST` and `STABILIZATION_RESULT` logs from a real session.
+- Capture a maximum-resolution JPEG and report actual width, height, megapixels, EXIF orientation, and file size.
+- Do not claim 48 MP unless the saved JPEG is near 48 million pixels.
+
 ## Current Status - 2026-07-28 12:13 +07:00
 
 Status: incomplete because mandatory physical-device capture, CaptureResult, and screenshot verification is still unavailable. No shutdown was scheduled.

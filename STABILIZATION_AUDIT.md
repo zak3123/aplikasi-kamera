@@ -1,5 +1,21 @@
 # Stabilization Audit
 
+## UI Stabilization Update - 2026-07-28 12:32 +07:00
+
+Status: visible source UI and APK DEX changed; physical screenshot and CaptureResult evidence are still blocked because no ADB device is connected.
+
+Implemented in this pass:
+
+- `PocoStyleCameraChrome` now has a dedicated circular `STAB` control with a short accepted/request label.
+- `CameraScreen` derives the visible label from `StabilizationRequestPlan` and `stabilizationAcceptedShortLabel`.
+- `CameraSheets` exposes only resolver-supported stabilization options and displays Requested, Effective request, Accepted result, request plan booleans, status, and raw CaptureResult evidence.
+- `classes10.dex` changed from `905,420` bytes to `926,704` bytes.
+
+Not proven:
+
+- No POCO screenshot was captured.
+- No real `CaptureResult` accepted stabilization value was captured.
+
 ## Core Engine Update - 2026-07-28 12:13 +07:00
 
 Status: source pipeline updated; CaptureResult verification is still blocked because `adb devices -l` returned no connected devices.

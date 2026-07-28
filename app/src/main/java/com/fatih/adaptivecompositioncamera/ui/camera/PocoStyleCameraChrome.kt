@@ -126,12 +126,11 @@ fun PocoStyleTopControls(
             PocoTopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution, rotationDegrees = controlRotationDegrees)
         }
         if (stabilizationLabel != null) {
-            PocoTopControl(
-                icon = Icons.Rounded.CameraAlt,
-                description = "Stabilization",
-                label = stabilizationLabel,
+            PocoStabilizationControl(
+                value = stabilizationLabel,
+                description = "Stabilization selector. Current result $stabilizationLabel",
                 onClick = onStabilization,
-                active = stabilizationLabel !in setOf("OFF", "N/A"),
+                active = stabilizationLabel !in setOf("OFF", "N/A", "WAIT"),
                 rotationDegrees = controlRotationDegrees,
             )
         }
@@ -178,7 +177,15 @@ fun PocoStyleQuickSettings(
                 if (hasComposition) PocoQuickItem(Icons.Rounded.GridOn, "Grid", "Composition", onComposition, controlRotationDegrees)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                if (hasStabilization) PocoQuickItem(Icons.Rounded.CameraAlt, stabilizationLabel ?: "OFF", "Stabilization", onStabilization, controlRotationDegrees)
+                if (hasStabilization) {
+                    PocoQuickItem(
+                        Icons.Rounded.CameraAlt,
+                        "Stab ${stabilizationLabel ?: "OFF"}",
+                        "Stabilization selector",
+                        onStabilization,
+                        controlRotationDegrees,
+                    )
+                }
                 PocoQuickItem(Icons.Rounded.Settings, "Settings", "Settings", onSettings, controlRotationDegrees)
             }
         }
@@ -280,6 +287,50 @@ private fun VideoStabilizationMode.pocoShortLabel(): String = when (this) {
     VideoStabilizationMode.Optical -> "OIS"
     VideoStabilizationMode.Auto -> "AUTO"
     VideoStabilizationMode.Unsupported -> "N/A"
+}
+
+@Composable
+private fun PocoStabilizationControl(
+    value: String,
+    description: String,
+    onClick: () -> Unit,
+    active: Boolean,
+    rotationDegrees: Float = 0f,
+) {
+    Column(Modifier.width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            onClick = onClick,
+            shape = CircleShape,
+            color = if (active) Color(0xFFAEEA00) else Color.Black.copy(alpha = 0.34f),
+            modifier = Modifier
+                .size(CameraUiTokens.minimumTouchTarget)
+                .semantics { contentDescription = description },
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    value,
+                    color = if (active) Color.Black else Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier.rotate(rotationDegrees),
+                )
+            }
+        }
+        Text(
+            "STAB",
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier
+                .rotate(rotationDegrees)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black.copy(alpha = 0.56f))
+                .padding(horizontal = 5.dp, vertical = 1.dp),
+        )
+    }
 }
 
 @Composable

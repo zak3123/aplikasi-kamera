@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -65,6 +66,7 @@ import com.fatih.adaptivecompositioncamera.domain.model.SpiralOrientation
 import com.fatih.adaptivecompositioncamera.domain.model.VideoFpsRange
 import com.fatih.adaptivecompositioncamera.domain.model.VideoQualitySetting
 import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
+import com.fatih.adaptivecompositioncamera.capability.StabilizationRequestPlan
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
 
 @Composable
@@ -298,6 +300,10 @@ fun VideoSettingsSheet(
     stabilizationModes: List<VideoStabilizationMode>,
     selectedStabilization: VideoStabilizationMode,
     stabilizationStatus: String,
+    stabilizationEvidence: String,
+    stabilizationPlan: StabilizationRequestPlan?,
+    effectiveStabilizationLabel: String,
+    acceptedStabilizationLabel: String,
     onQuality: (VideoQualitySetting) -> Unit,
     onFps: (VideoFpsRange) -> Unit,
     onStabilization: (VideoStabilizationMode) -> Unit,
@@ -364,14 +370,26 @@ fun VideoSettingsSheet(
                     Text("Frame rate is camera-managed; no standard reported range can be selected.", style = MaterialTheme.typography.bodySmall)
                 }
             }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "STABILIZATION",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Badge("Accepted $acceptedStabilizationLabel")
+            }
             Text(
-                "STABILIZATION",
+                "Supported by this camera/mode only. Auto resolves through the new Camera2 request plan.",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 14.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
             )
             Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 stabilizationModes.forEach { mode ->
@@ -383,10 +401,19 @@ fun VideoSettingsSheet(
                     )
                 }
             }
+            StabilizationEvidenceCard(
+                requested = selectedStabilization.stabilizationLabel(),
+                effective = effectiveStabilizationLabel,
+                accepted = acceptedStabilizationLabel,
+                plan = stabilizationPlan,
+                status = stabilizationStatus,
+                evidence = stabilizationEvidence,
+            )
             Text(
-                stabilizationStatus,
-                style = MaterialTheme.typography.bodyMedium,
+                "Accepted value updates only after Camera2 CaptureResult is received.",
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
             )
             if (
                 selectedStabilization in listOf(
@@ -403,6 +430,43 @@ fun VideoSettingsSheet(
                 )
             }
             Button(onClick = onDismiss, modifier = Modifier.padding(top = 18.dp)) { Text("Done") }
+        }
+    }
+}
+
+@Composable
+private fun StabilizationEvidenceCard(
+    requested: String,
+    effective: String,
+    accepted: String,
+    plan: StabilizationRequestPlan?,
+    status: String,
+    evidence: String,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text("Requested: $requested", style = MaterialTheme.typography.bodyMedium)
+            Text("Effective request: $effective", style = MaterialTheme.typography.bodyMedium)
+            Text("Accepted result: $accepted", style = MaterialTheme.typography.bodyMedium)
+            if (plan != null) {
+                Text(
+                    "Plan: OIS=${plan.requestOis}  EIS=${plan.requestStandardEis}  Preview=${plan.requestPreviewStabilization}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text("Status: $status", style = MaterialTheme.typography.bodySmall)
+            Text(
+                evidence,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
