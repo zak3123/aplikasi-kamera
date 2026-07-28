@@ -6,17 +6,32 @@ import com.fatih.adaptivecompositioncamera.utility.AdaptiveLayout
 
 /** Shared camera chrome dimensions. Preview geometry is calculated separately from these tokens. */
 object CameraUiTokens {
-    val minimumTouchTarget: Dp = 48.dp
-    val topIconSize: Dp = 21.dp
-    val topVisualSize: Dp = 34.dp
-    val secondaryControlSize: Dp = 48.dp
-    val shutterOuterSize: Dp = 76.dp
-    val shutterStroke: Dp = 3.dp
-    val controlGap: Dp = 6.dp
-    val compactPadding: Dp = 6.dp
-    val portraitControlsHeight: Dp = 168.dp
-    val landscapeCaptureRailWidth: Dp = 82.dp
-    val landscapeModeRailWidth: Dp = 50.dp
+    val minimumTouchTarget: Dp = 56.dp
+    val topIconSize: Dp = 24.dp
+    val topVisualSize: Dp = 44.dp
+    val topGap: Dp = 8.dp
+    val topEdgeMargin: Dp = 16.dp
+    val topLabelHorizontalPadding: Dp = 10.dp
+    val topLabelVerticalPadding: Dp = 4.dp
+    val lensTouchTarget: Dp = 64.dp
+    val lensVisibleSize: Dp = 56.dp
+    val lensActiveVisibleSize: Dp = 62.dp
+    val lensGap: Dp = 12.dp
+    val modeHorizontalGap: Dp = 28.dp
+    val secondaryTouchTarget: Dp = 66.dp
+    val secondaryControlSize: Dp = 58.dp
+    val shutterTouchTarget: Dp = 104.dp
+    val shutterOuterSize: Dp = 92.dp
+    val shutterStroke: Dp = 4.5.dp
+    val exposureSliderHeight: Dp = 218.dp
+    val exposureControlWidth: Dp = 72.dp
+    val exposureThumbSize: Dp = 26.dp
+    val focusRingDiameter: Dp = 76.dp
+    val controlGap: Dp = 10.dp
+    val compactPadding: Dp = 10.dp
+    val portraitControlsHeight: Dp = 238.dp
+    val landscapeCaptureRailWidth: Dp = 118.dp
+    val landscapeModeRailWidth: Dp = 72.dp
     val maximumPortraitControlsWidth: Dp = 620.dp
     val maximumTabletControlsWidth: Dp = 720.dp
 }

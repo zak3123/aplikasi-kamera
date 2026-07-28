@@ -661,6 +661,7 @@ class CameraRuntime(
                 maxZoom = zoomState?.maxZoomRatio ?: 1f,
                 exposureMin = exposure?.lower ?: 0,
                 exposureMax = exposure?.upper ?: 0,
+                exposureStep = info?.exposureState?.exposureCompensationStep?.toFloat() ?: 0f,
                 hasFlash = info?.hasFlashUnit() == true,
                 captureWidth = captureResolution?.width ?: 0,
                 captureHeight = captureResolution?.height ?: 0,

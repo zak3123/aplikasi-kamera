@@ -1,5 +1,95 @@
 # Project Completion Report
 
+## Current Status - 2026-07-28 20:01 +07:00
+
+Status: incomplete because POCO physical-device screenshots and actual maximum-resolution capture output are still unavailable. `adb devices -l` returned no connected devices.
+
+- Project directory: `D:\aplikasi-kamera`
+- Final local APK path: `D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.8.3-poco-sizing-exposure-debug.apk`
+- APK file size: `25,231,967` bytes
+- APK SHA256: `2553CB5731261FDCB8FE6306606713B03B901F817D327706F54885EDC65284E3`
+- Build result: SUCCESS, `:app:assembleDebug`
+- Unit-test result: SUCCESS, `:app:test`
+- Lint result: SUCCESS, `:app:lint`
+- Targeted test result: SUCCESS, `CameraMathTest`
+- ADB result: `adb devices -l` returned no connected devices.
+- Shutdown scheduled: false
+
+### POCO Sizing and Exposure Rewrite
+
+- Replaced tiny top/bottom sizing tokens with POCO-like camera tokens.
+- Removed the tiny rotated exposure slider.
+- Added a stock-style exposure control beside the focus ring:
+  - 218 dp height
+  - 72 dp width
+  - 26 dp thumb
+  - real exposure compensation range from camera state
+  - EV label from exposure compensation step
+  - auto placement left/right around focus ring
+  - double-tap reset to 0 EV
+- Enlarged focus ring to 76 dp.
+- Enlarged shutter to 92 dp visible / 104 dp touch target.
+- Enlarged latest-media and camera switch to 58 dp visible / 66 dp touch target.
+- Enlarged Pro parameter controls to 68 dp by 56 dp minimum.
+- More grid now uses 104 dp cells and 34 dp icons.
+- Maximum-resolution mode strip now says `Ultra HD`.
+- Top resolution label now rounds friendly values such as `15.9 MP` to `16 MP`.
+
+### APK static UI proof
+
+Compared with `AdaptiveCompositionCamera-v0.8.2-stabilization-ui-debug.apk`:
+
+- old `classes10.dex`: `926,704` bytes, SHA256 `DB81612F4D50F8F398979DAA6207E5D3E6D3285DF276176834FA8C823270CA42`
+- new `classes10.dex`: `969,648` bytes, SHA256 `5F0F8FD63C092D4B9A195EEDF368DC36E0923D0B0878121548A4ADA944E9C78D`
+
+### Physical verification still required
+
+- `photo_portrait.png`
+- `focus_exposure_portrait.png`
+- `quick_controls_portrait.png`
+- `more_portrait.png`
+- `pro_portrait.png`
+- `stabilization_portrait.png`
+- `photo_landscape_left.png`
+- `photo_landscape_right.png`
+- `focus_exposure_landscape.png`
+- `front_camera.png`
+- actual maximum-resolution saved JPEG width, height, megapixels, EXIF orientation, and file size
+
+## Current Status - 2026-07-28 19:45 +07:00
+
+Status: incomplete because physical POCO install, screenshots, exposure usability verification, and maximum-resolution output capture are still required.
+
+### UI Size and Exposure Rewrite
+
+- Replaced the small 48 dp / 34 dp camera-token system with a POCO-like token set.
+- Shutter increased from 76 dp to 92 dp visible, with 104 dp touch target.
+- Thumbnail and camera-switch controls increased from 48 dp to 58 dp visible, with 66 dp touch target.
+- Top visible circle increased from 34 dp to 44 dp.
+- Top touch target increased from 48 dp to 56 dp.
+- Lens controls now use 64 dp touch targets, 56 dp inactive visible circles, and 62 dp active visible circles.
+- Removed fluorescent green full-circle selected state.
+- Maximum-resolution mode strip now says `Ultra HD`, not `16.1 MP`.
+- Top megapixel label now rounds friendly values such as `15.9 MP` to `16 MP`.
+- Replaced the tiny rotated Material exposure slider with a custom stock-style vertical exposure control beside the focus point.
+- Focus ring increased to 76 dp with thicker stroke.
+
+### Local validation
+
+- Targeted Kotlin compile: success.
+- Targeted `CameraMathTest`: success.
+
+### Physical verification still required
+
+- POCO screenshot: portrait photo.
+- POCO screenshot: focus/exposure control.
+- POCO screenshot: quick controls.
+- POCO screenshot: More screen.
+- POCO screenshot: Pro mode.
+- POCO screenshot: landscape-left and landscape-right.
+- Maximum-resolution saved JPEG width, height, and megapixels.
+- Stabilization accepted CaptureResult evidence.
+
 ## Current Status - 2026-07-28 12:32 +07:00
 
 Status: incomplete because mandatory POCO install, stabilization-selector screenshot, real CaptureResult evidence, and maximum-resolution captured JPEG dimensions are still unavailable. `adb devices -l` returned no connected devices.

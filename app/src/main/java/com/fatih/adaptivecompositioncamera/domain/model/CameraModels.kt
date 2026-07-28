@@ -386,6 +386,7 @@ data class RuntimeCameraInfo(
     val maxZoom: Float = 1f,
     val exposureMin: Int = 0,
     val exposureMax: Int = 0,
+    val exposureStep: Float = 0f,
     val hasFlash: Boolean = false,
     val captureWidth: Int = 0,
     val captureHeight: Int = 0,

@@ -147,6 +147,7 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.roundToInt
+import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
@@ -340,7 +341,7 @@ fun CameraScreen(
     }
     val estimatedOutputLabel = estimatedOutputDimensions?.let { (width, height) ->
         val megapixels = CameraMath.megapixels(width, height)
-        if (megapixels % 1.0 == 0.0) "${megapixels.toInt()} MP" else "$megapixels MP"
+        friendlyTopMegapixelLabel(megapixels)
     }
 
     var showResolutionSheet by remember { mutableStateOf(false) }
@@ -509,7 +510,7 @@ fun CameraScreen(
     }
     LaunchedEffect(focusPoint) {
         if (focusPoint != null) {
-            delay(1_500)
+            delay(3_500)
             focusPoint = null
             showExposure = false
         }
@@ -664,6 +665,13 @@ fun CameraScreen(
                 focusPoint = Offset(event.x, event.y)
                 showExposure = runtimeInfo.exposureMin != runtimeInfo.exposureMax
                 runtime.focusAt(view, event.x, event.y)
+                return true
+            }
+            override fun onDoubleTap(event: MotionEvent): Boolean {
+                exposure = runtime.setExposure(0)
+                focusPoint = Offset(event.x, event.y)
+                showExposure = runtimeInfo.exposureMin != runtimeInfo.exposureMax
+                if (settings.haptics) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 return true
             }
         })
@@ -965,18 +973,27 @@ fun CameraScreen(
                 }
             }
 
-            focusPoint?.let { point -> FocusIndicator(point, Modifier.fillMaxSize()) }
-
-            AnimatedVisibility(
-                visible = showExposure,
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 4.dp),
-            ) {
-                Surface(color = Color.Black.copy(alpha = 0.45f), shape = RoundedCornerShape(18.dp)) {
-                    Slider(
-                        value = exposure.toFloat(),
-                        onValueChange = { exposure = runtime.setExposure(it.toInt()) },
-                        valueRange = runtimeInfo.exposureMin.toFloat()..runtimeInfo.exposureMax.toFloat(),
-                        modifier = Modifier.width(142.dp).rotate(-90f),
+            focusPoint?.let { point ->
+                FocusIndicator(point, Modifier.fillMaxSize())
+                AnimatedVisibility(visible = showExposure) {
+                    StockExposureControl(
+                        focusPoint = point,
+                        exposureIndex = exposure,
+                        minExposure = runtimeInfo.exposureMin,
+                        maxExposure = runtimeInfo.exposureMax,
+                        exposureStep = runtimeInfo.exposureStep,
+                        onExposure = { next ->
+                            val applied = runtime.setExposure(next)
+                            if (applied != exposure && settings.haptics) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                            exposure = applied
+                        },
+                        onReset = {
+                            exposure = runtime.setExposure(0)
+                            if (settings.haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
@@ -1400,7 +1417,7 @@ private fun ProControlPanel(
         color = Color.Black.copy(alpha = 0.52f),
         shape = RoundedCornerShape(16.dp),
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1418,7 +1435,7 @@ private fun ProControlPanel(
                         Color.White.copy(alpha = 0.15f)
                     },
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.heightIn(min = 40.dp),
+                    modifier = Modifier.heightIn(min = 52.dp),
                 ) {
                     Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
                         Text(
@@ -1434,7 +1451,7 @@ private fun ProControlPanel(
             }
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 ProControl.entries.forEach { control ->
                     val available = when (control) {
@@ -1448,13 +1465,13 @@ private fun ProControlPanel(
                             onClick = { onControl(control) },
                             color = if (activeControl == control) Color.White.copy(alpha = 0.20f) else Color.Transparent,
                             shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.heightIn(min = 40.dp),
+                            modifier = Modifier.widthIn(min = 68.dp).heightIn(min = 56.dp),
                         ) {
                             Column(
-                                Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
-                                Text(control.shortLabel(), color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelSmall)
+                                Text(control.shortLabel(), color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelMedium)
                                 Text(
                                     control.valueLabel(
                                         iso,
@@ -1466,7 +1483,7 @@ private fun ProControlPanel(
                                         whiteBalanceMode,
                                     ),
                                     color = if (activeControl == control) Color(0xFFFFCC48) else Color.White,
-                                    style = MaterialTheme.typography.labelMedium,
+                                    style = MaterialTheme.typography.titleSmall,
                                     maxLines = 1,
                                     softWrap = false,
                                 )
@@ -2171,17 +2188,180 @@ private fun ShutterButton(videoMode: Boolean, recording: Boolean, onClick: () ->
 }
 
 @Composable
+private fun StockExposureControl(
+    focusPoint: Offset,
+    exposureIndex: Int,
+    minExposure: Int,
+    maxExposure: Int,
+    exposureStep: Float,
+    onExposure: (Int) -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (maxExposure <= minExposure) return
+    BoxWithConstraints(modifier) {
+        val density = LocalDensity.current
+        val controlWidthPx = with(density) { CameraUiTokens.exposureControlWidth.toPx() }.roundToInt()
+        val controlHeightPx = with(density) { CameraUiTokens.exposureSliderHeight.toPx() }.roundToInt()
+        val ringRadiusPx = with(density) { (CameraUiTokens.focusRingDiameter / 2).toPx() }.roundToInt()
+        val gapPx = with(density) { 20.dp.toPx() }.roundToInt()
+        val viewportWidth = with(density) { maxWidth.toPx() }.roundToInt()
+        val viewportHeight = with(density) { maxHeight.toPx() }.roundToInt()
+        val geometry = exposureControlGeometry(
+            focusPoint = focusPoint,
+            viewportWidth = viewportWidth,
+            viewportHeight = viewportHeight,
+            controlWidthPx = controlWidthPx,
+            controlHeightPx = controlHeightPx,
+            ringRadiusPx = ringRadiusPx,
+            gapPx = gapPx,
+        )
+        val range = (maxExposure - minExposure).coerceAtLeast(1)
+        val normalized = ((exposureIndex.coerceIn(minExposure, maxExposure) - minExposure).toFloat() / range)
+            .coerceIn(0f, 1f)
+        Surface(
+            color = Color.Black.copy(alpha = 0.10f),
+            shape = RoundedCornerShape(32.dp),
+            modifier = Modifier
+                .offset { IntOffset(geometry.x, geometry.y) }
+                .size(CameraUiTokens.exposureControlWidth, CameraUiTokens.exposureSliderHeight)
+                .pointerInput(minExposure, maxExposure) {
+                    detectDragGestures(
+                        onDragStart = { position ->
+                            val mapped = maxExposure - ((position.y / controlHeightPx) * range).roundToInt()
+                            onExposure(mapped.coerceIn(minExposure, maxExposure))
+                        },
+                    ) { change, _ ->
+                        change.consume()
+                        val mapped = maxExposure - ((change.position.y / controlHeightPx) * range).roundToInt()
+                        onExposure(mapped.coerceIn(minExposure, maxExposure))
+                    }
+                },
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val centerX = size.width / 2f
+                    val top = 28.dp.toPx()
+                    val bottom = size.height - 44.dp.toPx()
+                    val thumbY = bottom - (bottom - top) * normalized
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.42f),
+                        start = Offset(centerX, top),
+                        end = Offset(centerX, bottom),
+                        strokeWidth = 4.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(centerX, thumbY),
+                        end = Offset(centerX, bottom),
+                        strokeWidth = 4.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.36f),
+                        radius = CameraUiTokens.exposureThumbSize.toPx() / 2f + 3.dp.toPx(),
+                        center = Offset(centerX, thumbY),
+                    )
+                    drawCircle(
+                        color = Color(0xFFFFD166),
+                        radius = CameraUiTokens.exposureThumbSize.toPx() / 2f,
+                        center = Offset(centerX, thumbY),
+                    )
+                    val sunCenter = Offset(centerX, 18.dp.toPx())
+                    drawCircle(Color.White, 7.dp.toPx(), sunCenter, style = Stroke(width = 2.dp.toPx()))
+                    repeat(8) { index ->
+                        val angle = Math.toRadians((index * 45).toDouble())
+                        val start = Offset(
+                            sunCenter.x + kotlin.math.cos(angle).toFloat() * 11.dp.toPx(),
+                            sunCenter.y + kotlin.math.sin(angle).toFloat() * 11.dp.toPx(),
+                        )
+                        val end = Offset(
+                            sunCenter.x + kotlin.math.cos(angle).toFloat() * 15.dp.toPx(),
+                            sunCenter.y + kotlin.math.sin(angle).toFloat() * 15.dp.toPx(),
+                        )
+                        drawLine(Color.White, start, end, strokeWidth = 1.8.dp.toPx(), cap = StrokeCap.Round)
+                    }
+                }
+                Text(
+                    exposureEvLabel(exposureIndex, exposureStep),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Black.copy(alpha = 0.42f))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+        }
+    }
+}
+
+internal data class ExposureControlGeometry(
+    val x: Int,
+    val y: Int,
+    val placedOnLeft: Boolean,
+)
+
+internal fun exposureControlGeometry(
+    focusPoint: Offset,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    controlWidthPx: Int,
+    controlHeightPx: Int,
+    ringRadiusPx: Int,
+    gapPx: Int,
+): ExposureControlGeometry {
+    val safeMargin = 12
+    val useLeft = focusPoint.x + ringRadiusPx + gapPx + controlWidthPx > viewportWidth - safeMargin
+    val rawX = if (useLeft) {
+        focusPoint.x - ringRadiusPx - gapPx - controlWidthPx
+    } else {
+        focusPoint.x + ringRadiusPx + gapPx
+    }
+    val rawY = focusPoint.y - controlHeightPx / 2f
+    return ExposureControlGeometry(
+        x = rawX.roundToInt().coerceIn(safeMargin, (viewportWidth - controlWidthPx - safeMargin).coerceAtLeast(safeMargin)),
+        y = rawY.roundToInt().coerceIn(safeMargin, (viewportHeight - controlHeightPx - safeMargin).coerceAtLeast(safeMargin)),
+        placedOnLeft = useLeft,
+    )
+}
+
+internal fun exposureEvLabel(index: Int, step: Float): String {
+    val unit = if (step > 0f) step else 1f
+    val ev = index * unit
+    return when {
+        abs(ev) < 0.05f -> "0"
+        else -> String.format(Locale.US, "%+.1f", ev)
+    }
+}
+
+internal fun friendlyTopMegapixelLabel(megapixels: Double): String {
+    return if (megapixels >= 10.0) {
+        "${megapixels.roundToInt()} MP"
+    } else if (abs(megapixels - megapixels.roundToInt()) < 0.05) {
+        "${megapixels.roundToInt()} MP"
+    } else {
+        String.format(Locale.US, "%.1f MP", megapixels)
+    }
+}
+
+@Composable
 private fun FocusIndicator(point: Offset, modifier: Modifier = Modifier) {
-    val radius = with(LocalDensity.current) { 30.dp.toPx() }
+    val radius = with(LocalDensity.current) { (CameraUiTokens.focusRingDiameter / 2).toPx() }
     Canvas(modifier) {
         drawCircle(
             Color(0xFFFFD166),
             radius = radius,
             center = point,
-            style = Stroke(width = 1.5.dp.toPx()),
+            style = Stroke(width = 2.2.dp.toPx()),
         )
-        drawLine(Color(0xFFFFD166), Offset(point.x - radius, point.y), Offset(point.x - radius * 0.65f, point.y), 1.5.dp.toPx(), StrokeCap.Square)
-        drawLine(Color(0xFFFFD166), Offset(point.x + radius * 0.65f, point.y), Offset(point.x + radius, point.y), 1.5.dp.toPx(), StrokeCap.Square)
+        drawLine(Color(0xFFFFD166), Offset(point.x - radius, point.y), Offset(point.x - radius * 0.64f, point.y), 2.2.dp.toPx(), StrokeCap.Square)
+        drawLine(Color(0xFFFFD166), Offset(point.x + radius * 0.64f, point.y), Offset(point.x + radius, point.y), 2.2.dp.toPx(), StrokeCap.Square)
+        drawLine(Color(0xFFFFD166), Offset(point.x, point.y - radius), Offset(point.x, point.y - radius * 0.64f), 2.2.dp.toPx(), StrokeCap.Square)
+        drawLine(Color(0xFFFFD166), Offset(point.x, point.y + radius * 0.64f), Offset(point.x, point.y + radius), 2.2.dp.toPx(), StrokeCap.Square)
     }
 }
 

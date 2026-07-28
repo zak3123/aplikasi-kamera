@@ -63,6 +63,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.fatih.adaptivecompositioncamera.domain.model.CameraCapability
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
@@ -97,7 +98,7 @@ fun PocoStyleTopControls(
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(CameraUiTokens.topGap),
     ) {
         if (hasFlash) {
             PocoTopControl(
@@ -255,7 +256,7 @@ fun PocoStyleShutterControls(
         Column(
             modifier
                 .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.28f), Color.Black.copy(alpha = 0.74f))))
-                .padding(horizontal = 12.dp, vertical = 2.dp),
+                .padding(horizontal = 20.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (availableCameras.size > 1) {
@@ -266,9 +267,11 @@ fun PocoStyleShutterControls(
             AnimatedVisibility(showZoomSlider && maxZoom > minZoom + 0.05f) {
                 Slider(value = zoom, onValueChange = onZoom, valueRange = minZoom..maxZoom, modifier = Modifier.fillMaxWidth().height(30.dp))
             }
+            Spacer(Modifier.height(4.dp))
             PocoStyleModeSelector(activeMode, availableModes, maxResolution, onMode, onMore)
+            Spacer(Modifier.height(8.dp))
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 28.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -289,6 +292,8 @@ private fun VideoStabilizationMode.pocoShortLabel(): String = when (this) {
     VideoStabilizationMode.Unsupported -> "N/A"
 }
 
+private val PocoAccent = Color(0xFFD6E66D)
+
 @Composable
 private fun PocoStabilizationControl(
     value: String,
@@ -297,19 +302,20 @@ private fun PocoStabilizationControl(
     active: Boolean,
     rotationDegrees: Float = 0f,
 ) {
-    Column(Modifier.width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.width(CameraUiTokens.secondaryTouchTarget), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
             shape = CircleShape,
-            color = if (active) Color(0xFFAEEA00) else Color.Black.copy(alpha = 0.34f),
+            color = Color.Black.copy(alpha = if (active) 0.48f else 0.34f),
             modifier = Modifier
                 .size(CameraUiTokens.minimumTouchTarget)
+                .then(if (active) Modifier.border(1.5.dp, PocoAccent, CircleShape) else Modifier)
                 .semantics { contentDescription = description },
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Text(
                     value,
-                    color = if (active) Color.Black else Color.White,
+                    color = if (active) PocoAccent else Color.White,
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 1,
                     softWrap = false,
@@ -320,7 +326,7 @@ private fun PocoStabilizationControl(
         }
         Text(
             "STAB",
-            color = Color.White,
+            color = if (active) PocoAccent else Color.White,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
             softWrap = false,
@@ -342,7 +348,7 @@ private fun PocoTopControl(
     active: Boolean = false,
     rotationDegrees: Float = 0f,
 ) {
-    Column(Modifier.width(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.width(CameraUiTokens.minimumTouchTarget), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier.size(CameraUiTokens.minimumTouchTarget).clip(CircleShape).clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
@@ -351,10 +357,11 @@ private fun PocoTopControl(
                 modifier = Modifier
                     .size(CameraUiTokens.topVisualSize)
                     .clip(CircleShape)
-                    .background(if (active) Color(0xFFAEEA00) else Color.Black.copy(alpha = if (label != null) 0.34f else 0.22f)),
+                    .background(Color.Black.copy(alpha = if (active) 0.46f else if (label != null) 0.34f else 0.24f))
+                    .then(if (active) Modifier.border(1.5.dp, PocoAccent, CircleShape) else Modifier),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, contentDescription = description, tint = if (active) Color.Black else Color.White, modifier = Modifier.size(CameraUiTokens.topIconSize).rotate(rotationDegrees))
+                Icon(icon, contentDescription = description, tint = if (active) PocoAccent else Color.White, modifier = Modifier.size(CameraUiTokens.topIconSize).rotate(rotationDegrees))
             }
         }
         if (label != null) {
@@ -365,7 +372,14 @@ private fun PocoTopControl(
                 maxLines = 1,
                 overflow = TextOverflow.Clip,
                 softWrap = false,
-                modifier = Modifier.rotate(rotationDegrees).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.52f)).padding(horizontal = 5.dp, vertical = 1.dp),
+                modifier = Modifier
+                    .rotate(rotationDegrees)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(Color.Black.copy(alpha = 0.60f))
+                    .padding(
+                        horizontal = CameraUiTokens.topLabelHorizontalPadding,
+                        vertical = CameraUiTokens.topLabelVerticalPadding,
+                    ),
             )
         }
     }
@@ -387,7 +401,11 @@ private fun PocoQuickItem(icon: ImageVector, label: String, description: String,
 private fun PocoStyleModeSelector(activeMode: CameraMode, availableModes: List<CameraMode>, maxResolution: CameraResolution?, onMode: (CameraMode) -> Unit, onMore: () -> Unit) {
     val mainModes = listOf(CameraMode.Photo, CameraMode.Video).filter { it in availableModes }
     val visibleModes = if (activeMode in mainModes) mainModes else mainModes + activeMode
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         visibleModes.forEach { mode ->
             PocoModeLabel(mode.label(maxResolution), mode == activeMode) { onMode(mode) }
         }
@@ -420,9 +438,15 @@ private fun PocoModeLabel(text: String, selected: Boolean, onClick: () -> Unit) 
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(text, color = if (selected) Color.White else Color.White.copy(alpha = 0.68f), style = if (selected) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium, maxLines = 1, softWrap = false)
+        Text(
+            text,
+            color = if (selected) Color.White else Color.White.copy(alpha = 0.68f),
+            fontSize = if (selected) 20.sp else 18.sp,
+            maxLines = 1,
+            softWrap = false,
+        )
         Spacer(Modifier.height(3.dp))
-        Box(Modifier.width(18.dp).height(2.dp).clip(CircleShape).background(if (selected) Color(0xFFAEEA00) else Color.Transparent))
+        Box(Modifier.width(26.dp).height(3.dp).clip(CircleShape).background(if (selected) PocoAccent else Color.Transparent))
     }
 }
 
@@ -431,9 +455,19 @@ private fun PocoLensSelector(cameras: List<CameraCapability>, activeCameraId: St
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         cameras.forEach { camera ->
             val selected = camera.cameraId == activeCameraId
-            Surface(onClick = { onCamera(camera) }, shape = CircleShape, color = if (selected) Color.White else Color.Black.copy(alpha = 0.42f), modifier = Modifier.padding(horizontal = 3.dp).height(CameraUiTokens.minimumTouchTarget)) {
-                Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                    Text(camera.pocoLensLabel(cameras), color = if (selected) Color.Black else Color.White, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false, modifier = Modifier.rotate(rotationDegrees))
+            val size = if (selected) CameraUiTokens.lensActiveVisibleSize else CameraUiTokens.lensVisibleSize
+            Box(Modifier.size(CameraUiTokens.lensTouchTarget), contentAlignment = Alignment.Center) {
+                Surface(onClick = { onCamera(camera) }, shape = CircleShape, color = if (selected) Color.White else Color.Black.copy(alpha = 0.42f), modifier = Modifier.size(size)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            camera.pocoLensLabel(cameras),
+                            color = if (selected) Color.Black else Color.White,
+                            fontSize = if (selected) 19.sp else 17.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.rotate(rotationDegrees),
+                        )
+                    }
                 }
             }
         }
@@ -444,7 +478,7 @@ private fun PocoLensSelector(cameras: List<CameraCapability>, activeCameraId: St
 private fun PocoCompactLensSelector(cameras: List<CameraCapability>, activeCameraId: String?, onCamera: (CameraCapability) -> Unit, rotationDegrees: Float) {
     val activeIndex = cameras.indexOfFirst { it.cameraId == activeCameraId }.coerceAtLeast(0)
     val active = cameras.getOrNull(activeIndex) ?: return
-    Surface(onClick = { onCamera(cameras[(activeIndex + 1) % cameras.size]) }, shape = CircleShape, color = Color.White, modifier = Modifier.size(CameraUiTokens.minimumTouchTarget)) {
+    Surface(onClick = { onCamera(cameras[(activeIndex + 1) % cameras.size]) }, shape = CircleShape, color = Color.White, modifier = Modifier.size(CameraUiTokens.lensVisibleSize)) {
         Box(contentAlignment = Alignment.Center) {
             Text(active.pocoLensLabel(cameras), color = Color.Black, maxLines = 1, softWrap = false, modifier = Modifier.rotate(rotationDegrees))
         }
@@ -460,7 +494,7 @@ private fun PocoQuickZoomRow(zoom: Float, minZoom: Float, maxZoom: Float, onZoom
         if (maxZoom >= 5f) add(5f)
         if (none { abs(it - zoom) < 0.08f }) add(zoom)
     }.distinctBy { (it * 10).toInt() }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(horizontalArrangement = Arrangement.spacedBy(CameraUiTokens.lensGap), verticalAlignment = Alignment.CenterVertically) {
         values.forEach { value ->
             val selected = abs(zoom - value) < 0.08f
             PocoZoomButton(value, selected, rotationDegrees) { if (selected) onToggleSlider() else onZoom(value) }
@@ -470,39 +504,48 @@ private fun PocoQuickZoomRow(zoom: Float, minZoom: Float, maxZoom: Float, onZoom
 
 @Composable
 private fun PocoZoomButton(value: Float, selected: Boolean, rotationDegrees: Float, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = CircleShape, color = if (selected) Color.White else Color.Black.copy(alpha = 0.42f), modifier = Modifier.size(CameraUiTokens.minimumTouchTarget)) {
+    val size = if (selected) CameraUiTokens.lensActiveVisibleSize else CameraUiTokens.lensVisibleSize
+    Box(Modifier.size(CameraUiTokens.lensTouchTarget), contentAlignment = Alignment.Center) {
+        Surface(onClick = onClick, shape = CircleShape, color = if (selected) Color.White else Color.Black.copy(alpha = 0.42f), modifier = Modifier.size(size)) {
         Box(contentAlignment = Alignment.Center) {
-            Text(pocoFormatZoom(value), color = if (selected) Color.Black else Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.rotate(rotationDegrees))
+            Text(pocoFormatZoom(value), color = if (selected) Color.Black else Color.White, fontSize = if (selected) 19.sp else 17.sp, modifier = Modifier.rotate(rotationDegrees))
+        }
         }
     }
 }
 
 @Composable
 private fun PocoCameraSwitchButton(enabled: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, enabled = enabled, shape = CircleShape, color = Color.White.copy(alpha = if (enabled) 0.16f else 0.07f), modifier = Modifier.size(CameraUiTokens.secondaryControlSize)) {
-        Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Cameraswitch, "Switch camera", tint = Color.White) }
+    Box(Modifier.size(CameraUiTokens.secondaryTouchTarget), contentAlignment = Alignment.Center) {
+        Surface(onClick = onClick, enabled = enabled, shape = CircleShape, color = Color.White.copy(alpha = if (enabled) 0.14f else 0.06f), modifier = Modifier.size(CameraUiTokens.secondaryControlSize)) {
+            Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Cameraswitch, "Switch camera", tint = Color.White, modifier = Modifier.size(29.dp)) }
+        }
     }
 }
 
 @Composable
 private fun PocoLatestMediaButton(bitmap: Bitmap?, hasMedia: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, enabled = hasMedia, shape = CircleShape, color = Color.White.copy(alpha = 0.14f), modifier = Modifier.size(CameraUiTokens.secondaryControlSize).border(1.dp, Color.White.copy(alpha = 0.65f), CircleShape)) {
-        if (bitmap != null) {
-            Image(bitmap.asImageBitmap(), "Latest captured media", Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
-        } else {
-            Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Collections, "Open gallery", tint = Color.White) }
+    Box(Modifier.size(CameraUiTokens.secondaryTouchTarget), contentAlignment = Alignment.Center) {
+        Surface(onClick = onClick, enabled = hasMedia, shape = CircleShape, color = Color.White.copy(alpha = 0.14f), modifier = Modifier.size(CameraUiTokens.secondaryControlSize).border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape)) {
+            if (bitmap != null) {
+                Image(bitmap.asImageBitmap(), "Latest captured media", Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
+            } else {
+                Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Collections, "Open gallery", tint = Color.White, modifier = Modifier.size(28.dp)) }
+            }
         }
     }
 }
 
 @Composable
 private fun PocoShutterButton(videoMode: Boolean, recording: Boolean, onClick: () -> Unit) {
-    Canvas(Modifier.size(CameraUiTokens.shutterOuterSize).clickable(onClick = onClick).semantics { contentDescription = if (recording) "Stop recording" else if (videoMode) "Start video recording" else "Take photo" }) {
+    Box(Modifier.size(CameraUiTokens.shutterTouchTarget), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(CameraUiTokens.shutterOuterSize).clickable(onClick = onClick).semantics { contentDescription = if (recording) "Stop recording" else if (videoMode) "Start video recording" else "Take photo" }) {
         drawCircle(Color.White, radius = size.minDimension / 2f, style = Stroke(width = CameraUiTokens.shutterStroke.toPx()))
         when {
             recording -> drawRoundRect(Color(0xFFFF3B30), topLeft = Offset(size.width * 0.34f, size.height * 0.34f), size = Size(size.width * 0.32f, size.height * 0.32f), cornerRadius = CornerRadius(5.dp.toPx()))
             videoMode -> drawCircle(Color(0xFFFF3B30), radius = size.minDimension * 0.36f)
             else -> drawCircle(Color.White, radius = size.minDimension * 0.38f)
+        }
         }
     }
 }

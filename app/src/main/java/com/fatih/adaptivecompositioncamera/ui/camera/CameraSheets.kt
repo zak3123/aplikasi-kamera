@@ -836,12 +836,12 @@ fun PocoStyleMoreScreen(
             Column(
                 Modifier
                     .align(Alignment.Center)
-                    .widthIn(max = 520.dp)
+                    .widthIn(max = 560.dp)
                     .fillMaxWidth()
-                    .padding(horizontal = 28.dp)
+                    .padding(horizontal = 26.dp)
                     .clickable(enabled = false) {},
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(26.dp),
+                verticalArrangement = Arrangement.spacedBy(30.dp),
             ) {
                 (additional.ifEmpty { primaryModes }).chunked(3).forEach { rowModes ->
                     Row(
@@ -867,7 +867,7 @@ fun PocoStyleMoreScreen(
                     }
                 }
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(38.dp),
+                    horizontalArrangement = Arrangement.spacedBy(42.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     primaryModes.forEach { mode ->
@@ -906,30 +906,30 @@ private fun PocoStyleMoreItem(
 ) {
     Column(
         modifier = modifier
-            .heightIn(min = 86.dp)
+            .heightIn(min = 104.dp)
             .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
+            .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Box(
             Modifier
-                .size(54.dp)
+                .size(60.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (active) Color.White.copy(alpha = 0.16f) else Color.Transparent),
+                .background(if (active) Color.White.copy(alpha = 0.10f) else Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 mode.icon(),
                 contentDescription = mode.label(maxResolution),
                 tint = Color.White,
-                modifier = Modifier.size(31.dp),
+                modifier = Modifier.size(34.dp),
             )
         }
         Text(
             mode.label(maxResolution),
             color = if (active) Color(0xFFAEEA00) else Color.White,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.titleSmall,
             maxLines = 1,
             modifier = Modifier.padding(top = 7.dp),
         )
@@ -988,7 +988,7 @@ fun CameraMode.label(maxResolution: CameraResolution? = null): String = when (th
     CameraMode.Pro -> "Pro"
     CameraMode.Documents -> "Documents"
     CameraMode.Night -> "Night"
-    CameraMode.MaximumResolution -> maxResolution?.megapixelLabel ?: "Max Resolution"
+    CameraMode.MaximumResolution -> "Ultra HD"
     CameraMode.SlowMotion -> "Slow Motion"
     CameraMode.HighFrameRate -> "High Frame Rate"
     CameraMode.TimeLapse -> "Time-lapse"

@@ -30,7 +30,11 @@ import com.fatih.adaptivecompositioncamera.ui.camera.professionalGuideCatalog
 import com.fatih.adaptivecompositioncamera.ui.camera.CameraUiTokens
 import com.fatih.adaptivecompositioncamera.ui.camera.cameraUiLayoutPolicy
 import com.fatih.adaptivecompositioncamera.ui.camera.documentAnalysisResolutionKey
+import com.fatih.adaptivecompositioncamera.ui.camera.exposureControlGeometry
+import com.fatih.adaptivecompositioncamera.ui.camera.exposureEvLabel
+import com.fatih.adaptivecompositioncamera.ui.camera.friendlyTopMegapixelLabel
 import com.fatih.adaptivecompositioncamera.ui.camera.modeResolutionKey
+import com.fatih.adaptivecompositioncamera.ui.camera.label
 import com.fatih.adaptivecompositioncamera.ui.camera.stabilizationAcceptedShortLabel
 import com.fatih.adaptivecompositioncamera.composition.goldenSpiralGuideViewport
 import com.fatih.adaptivecompositioncamera.composition.perspectiveEdgePoints
@@ -402,10 +406,51 @@ class CameraMathTest {
     @Test
     fun stockCameraChromeStaysWithinCompactPhoneGuidance() {
         val landscape = cameraUiLayoutPolicy(AdaptiveLayout.PhoneLandscape)
-        assertEquals(132f, landscape.captureRailWidth.value, 0f)
-        assertTrue(landscape.captureRailWidth.value <= 800f * 0.22f)
-        assertTrue(CameraUiTokens.portraitControlsHeight.value <= 200f)
-        assertTrue(CameraUiTokens.shutterOuterSize.value in 72f..84f)
+        assertEquals(190f, landscape.captureRailWidth.value, 0f)
+        assertTrue(landscape.captureRailWidth.value <= 800f * 0.25f)
+        assertTrue(CameraUiTokens.minimumTouchTarget.value >= 52f)
+        assertTrue(CameraUiTokens.topVisualSize.value in 42f..46f)
+        assertTrue(CameraUiTokens.secondaryControlSize.value in 54f..60f)
+        assertTrue(CameraUiTokens.shutterOuterSize.value in 88f..96f)
+        assertTrue(CameraUiTokens.shutterTouchTarget.value >= 100f)
+    }
+
+    @Test
+    fun exposureControlUsesLargeSafeCameraGeometry() {
+        assertTrue(CameraUiTokens.exposureSliderHeight.value in 180f..240f)
+        assertTrue(CameraUiTokens.exposureThumbSize.value in 22f..28f)
+        val rightFocus = exposureControlGeometry(
+            focusPoint = androidx.compose.ui.geometry.Offset(1020f, 900f),
+            viewportWidth = 1080,
+            viewportHeight = 1920,
+            controlWidthPx = 72,
+            controlHeightPx = 218,
+            ringRadiusPx = 38,
+            gapPx = 20,
+        )
+        assertTrue(rightFocus.placedOnLeft)
+        assertTrue(rightFocus.x >= 12)
+        assertTrue(rightFocus.y in 12..(1920 - 218 - 12))
+        val leftFocus = exposureControlGeometry(
+            focusPoint = androidx.compose.ui.geometry.Offset(120f, 900f),
+            viewportWidth = 1080,
+            viewportHeight = 1920,
+            controlWidthPx = 72,
+            controlHeightPx = 218,
+            ringRadiusPx = 38,
+            gapPx = 20,
+        )
+        assertFalse(leftFocus.placedOnLeft)
+    }
+
+    @Test
+    fun exposureAndResolutionLabelsAreCameraFriendly() {
+        assertEquals("+1.0", exposureEvLabel(3, 0.33333334f))
+        assertEquals("-1.0", exposureEvLabel(-3, 0.33333334f))
+        assertEquals("0", exposureEvLabel(0, 0.33333334f))
+        assertEquals("16 MP", friendlyTopMegapixelLabel(15.9))
+        assertEquals("16 MP", friendlyTopMegapixelLabel(16.1))
+        assertEquals("Ultra HD", CameraMode.MaximumResolution.label(resolution(4624, 3472)))
     }
 
     @Test
