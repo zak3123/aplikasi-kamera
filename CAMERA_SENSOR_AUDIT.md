@@ -1,5 +1,17 @@
 # Camera Sensor Audit
 
+## Core Engine Update - 2026-07-28 12:13 Asia/Jakarta
+
+`AndroidCameraCapabilityRepository` was materially updated after the static-comparison rejection.
+
+New source evidence captured by the app on a real device will include:
+
+- `CAMERA2_REAR_PUBLIC_ENUMERATION` for every public rear/openable camera and every physical child surfaced by logical-camera metadata.
+- `CAMERA2_PHYSICAL_CHILD` rows with parent logical IDs, openable state, lens role inference, pixel arrays, maximum-resolution arrays, normal JPEG maximum, high-resolution JPEG maximum, maximum-resolution JPEG maximum, RAW maximum, focal lengths, apertures, and minimum focus distance.
+- Per-camera `CAMERA2` rows now include physical child maxima inline with normal/high/maximum JPEG stream maps and timing evidence.
+
+No device-specific sensor IDs are recorded in this update because `adb devices -l` returned no connected devices.
+
 Date: 2026-07-28 08:00 Asia/Jakarta
 
 ## Static Implementation

@@ -21,6 +21,7 @@ import com.fatih.adaptivecompositioncamera.domain.model.HardwareLevel
 import com.fatih.adaptivecompositioncamera.domain.model.HighSpeedVideoOption
 import com.fatih.adaptivecompositioncamera.domain.model.LensFacing
 import com.fatih.adaptivecompositioncamera.domain.model.LensRole
+import com.fatih.adaptivecompositioncamera.domain.model.PhysicalCameraSummary
 import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
 import com.fatih.adaptivecompositioncamera.domain.model.VideoFpsRange
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
@@ -64,6 +65,17 @@ class AndroidCameraCapabilityRepository(
             inspectCamera(id, isOpenable = false, parentLogicalCameraIds = physicalParents[id].orEmpty())
         }
         val cameras = openable + physicalOnly
+        val rearPublic = cameras.filter { it.lensFacing == LensFacing.Rear || it.parentLogicalCameraIds.isNotEmpty() }
+        CameraEvidenceLogger.record(
+            context,
+            "CAMERA2_REAR_PUBLIC_ENUMERATION",
+            rearPublic.joinToString(separator = " | ") { camera ->
+                val max = camera.maximumExposedResolution
+                "id=${camera.cameraId} openable=${camera.isOpenable} logical=${camera.isLogical} " +
+                    "parents=${camera.parentLogicalCameraIds} physical=${camera.physicalCameraIds} " +
+                    "max=${max?.width}x${max?.height}/${max?.megapixels}MP"
+            },
+        )
         CapabilityReport(
             generatedAtEpochMillis = System.currentTimeMillis(),
             appPackage = context.packageName,
@@ -115,6 +127,13 @@ class AndroidCameraCapabilityRepository(
         val focalLengths = c.safe(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.toList().orEmpty()
         val physicalSize = c.safe(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
         val physicalIds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) c.physicalCameraIds.toList() else emptyList()
+        val physicalSummaries = physicalIds.map { physicalId ->
+            inspectPhysicalSummary(
+                physicalId = physicalId,
+                parentLogicalCameraIds = listOf(cameraId),
+                isOpenable = safeCameraIds().contains(physicalId),
+            )
+        }
         val maxJpeg = CameraMath.sortResolutions(streams.normalJpegs, "JPEG").firstOrNull()
         val fpsRangeValues = c.safe(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
             ?.map { VideoFpsRange(it.lower, it.upper) }.orEmpty()
@@ -144,6 +163,7 @@ class AndroidCameraCapabilityRepository(
             pixelArray = c.safe(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)?.toText(),
             physicalSize = physicalSize?.let { "${it.width} x ${it.height} mm" },
             physicalCameraIds = physicalIds,
+            physicalCameraSummaries = physicalSummaries,
             focalLengths = focalLengths,
             apertures = c.safe(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)?.toList().orEmpty(),
             hasFlash = c.safe(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true,
@@ -242,7 +262,82 @@ class AndroidCameraCapabilityRepository(
             },
         )
         CameraEvidenceLogger.record(context, "CAMERA2", capability.evidenceSummary(streams))
+        physicalSummaries.forEach { summary ->
+            CameraEvidenceLogger.record(
+                context,
+                "CAMERA2_PHYSICAL_CHILD",
+                "parent=$cameraId id=${summary.cameraId} openable=${summary.isOpenable} " +
+                    "facing=${summary.lensFacing} role=${summary.lensRole} " +
+                    "pixelArray=${summary.pixelArray} maximumPixelArray=${summary.maximumPixelArray} " +
+                    "normalMax=${summary.normalJpegMaximum?.let { "${it.width}x${it.height}/${it.megapixels}MP" }} " +
+                    "highMax=${summary.highResolutionJpegMaximum?.let { "${it.width}x${it.height}/${it.megapixels}MP" }} " +
+                    "maximumMapMax=${summary.maximumResolutionJpegMaximum?.let { "${it.width}x${it.height}/${it.megapixels}MP" }} " +
+                    "rawMax=${summary.rawMaximum?.let { "${it.width}x${it.height}/${it.megapixels}MP" }} " +
+                    "reason=${summary.unavailableReason}",
+            )
+        }
         return capability
+    }
+
+    @SuppressLint("NewApi")
+    private fun inspectPhysicalSummary(
+        physicalId: String,
+        parentLogicalCameraIds: List<String>,
+        isOpenable: Boolean,
+    ): PhysicalCameraSummary {
+        val c = try {
+            manager.getCameraCharacteristics(physicalId)
+        } catch (error: Throwable) {
+            return PhysicalCameraSummary(
+                cameraId = physicalId,
+                parentLogicalCameraIds = parentLogicalCameraIds,
+                isOpenable = isOpenable,
+                unavailableReason = "${error::class.java.simpleName}: ${error.message}",
+            )
+        }
+        val facing = c.safe(CameraCharacteristics.LENS_FACING).toLensFacing()
+        val focalLengths = c.safe(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.toList().orEmpty()
+        val physicalSize = c.safe(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        val capabilities = c.safe(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)?.toList().orEmpty().toSet()
+        val supportsMaximumPixelMode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            runCatching { c.availableCaptureRequestKeys.orEmpty().contains(CaptureRequest.SENSOR_PIXEL_MODE) }.getOrDefault(false)
+        val streams = readStreamInventory(
+            characteristics = c,
+            ultraHighResolution = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR),
+            supportsMaximumPixelMode = supportsMaximumPixelMode,
+        )
+        return PhysicalCameraSummary(
+            cameraId = physicalId,
+            parentLogicalCameraIds = parentLogicalCameraIds,
+            lensFacing = facing,
+            lensRole = inferLensRole(
+                facing = facing,
+                focalLengths = focalLengths,
+                physicalSize = physicalSize,
+                minFocusDistance = c.safe(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE),
+            ),
+            sensorOrientation = c.safe(CameraCharacteristics.SENSOR_ORIENTATION),
+            activeArray = c.safe(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)?.flattenToString(),
+            maximumActiveArray = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                c.safe(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE_MAXIMUM_RESOLUTION)?.flattenToString()
+            } else null,
+            pixelArray = c.safe(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)?.toText(),
+            maximumPixelArray = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                c.safe(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE_MAXIMUM_RESOLUTION)?.toText()
+            } else null,
+            physicalSize = physicalSize?.let { "${it.width} x ${it.height} mm" },
+            focalLengths = focalLengths,
+            apertures = c.safe(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)?.toList().orEmpty(),
+            minFocusDistance = c.safe(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE),
+            normalJpegMaximum = CameraMath.sortResolutions(streams.normalJpegs, "JPEG").firstOrNull(),
+            highResolutionJpegMaximum = CameraMath.sortResolutions(streams.highResolutionJpegs, "JPEG").firstOrNull()
+                ?.copy(highResolution = true, recommended = false),
+            maximumResolutionJpegMaximum = CameraMath.sortResolutions(streams.maximumResolutionJpegs, "JPEG").firstOrNull()
+                ?.copy(maximumSensorMode = true, recommended = false),
+            rawMaximum = CameraMath.sortResolutions(streams.raw, "DNG").firstOrNull(),
+            isOpenable = isOpenable,
+        )
     }
 
     /**
@@ -292,6 +387,11 @@ class AndroidCameraCapabilityRepository(
         append("normalJPEG=${streams.normalJpegs.asEvidenceSizes()} ")
         append("highResolutionJPEG=${streams.highResolutionJpegs.asEvidenceSizes()} ")
         append("maximumResolutionJPEG=${streams.maximumResolutionJpegs.asEvidenceSizes()} ")
+        append("physicalSummaries=${physicalCameraSummaries.joinToString(prefix = "[", postfix = "]") { summary ->
+            "${summary.cameraId}:normal=${summary.normalJpegMaximum?.width}x${summary.normalJpegMaximum?.height}," +
+                "high=${summary.highResolutionJpegMaximum?.width}x${summary.highResolutionJpegMaximum?.height}," +
+                "max=${summary.maximumResolutionJpegMaximum?.width}x${summary.maximumResolutionJpegMaximum?.height}"
+        }} ")
         append("normalJpegTiming=${streams.normalJpegTimings.joinToString(prefix = "[", postfix = "]")} ")
         append("maximumJpegTiming=${streams.maximumJpegTimings.joinToString(prefix = "[", postfix = "]")} ")
         append("raw=${streams.raw.asEvidenceSizes()} heic=${streams.heic.asEvidenceSizes()} ")

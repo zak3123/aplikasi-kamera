@@ -1,5 +1,16 @@
 # Capture Output Audit
 
+## Core Engine Update - 2026-07-28 12:13 +07:00
+
+Static pipeline changes:
+
+- `MaximumResolutionCamera2Capture` continues to validate the requested JPEG size against the active Camera2 high-resolution or maximum-resolution stream map before capture.
+- The dedicated Camera2 path decodes JPEG bounds without full bitmap decode and rejects output whose actual dimensions do not match the requested surface.
+- `MAX_CAPTURE_RESULT` now includes sensor pixel mode, requested OIS, result OIS, crop region, exposure, ISO, AE/AF/flash state, and frame number.
+- Normal CameraX capture still records actual JPEG dimensions after MediaStore save.
+
+No actual capture output was produced in this pass because `adb devices -l` returned no connected devices.
+
 Completion time: 2026-07-27 21:02:21 +07:00
 
 ## Result

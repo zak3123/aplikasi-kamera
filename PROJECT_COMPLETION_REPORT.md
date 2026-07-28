@@ -1,5 +1,38 @@
 # Project Completion Report
 
+## Current Status - 2026-07-28 12:13 +07:00
+
+Status: incomplete because mandatory physical-device capture, CaptureResult, and screenshot verification is still unavailable. No shutdown was scheduled.
+
+- Project directory: `D:\aplikasi-kamera`
+- Final local APK path: `D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.8.1-core-engine-debug.apk`
+- APK file size: `25,204,934` bytes
+- APK SHA256: `CB47F343799B1622A75E924FD4D3B05EB1A2402F5D791DC66922D4AD12AC7A8D`
+- Build result: SUCCESS, `:app:assembleDebug`
+- Unit-test result: SUCCESS, `:app:test`
+- Lint result: SUCCESS, `:app:lint`
+- Targeted test result: SUCCESS, `CameraMathTest`
+- Validation command: `gradlew.bat :app:assembleDebug :app:test :app:lint --no-daemon --max-workers=1 --console=plain`
+- ADB result: `adb devices -l` returned no connected devices.
+- Shutdown scheduled: false
+
+### Core Engine Rewrite Changes
+
+- `AndroidCameraCapabilityRepository.kt`: now records rear-public enumeration evidence and physical-camera child summaries with normal, high-resolution, maximum-resolution, RAW, focal-length, sensor-array, and parent-logical details.
+- `MaximumResolutionCamera2Capture.kt`: now accepts stabilization intent, applies OIS in the dedicated Camera2 still request when Android exposes OIS, and records requested/result OIS plus crop and sensor pixel mode.
+- `CameraRuntime.kt`: no longer treats still capture as “Not a video session” for stabilization. It applies still OIS through Camera2 interop on Preview and ImageCapture and monitors CaptureResult evidence.
+- `Resolvers.kt`: now emits a concrete stabilization request plan and adds a central mode conflict matrix for Pro, Documents, Video, high-speed, analysis, and still-only sessions.
+- `CompositionGuideOverlay.kt`: Golden Spiral renderer was rewritten into a bounded one-path viewport implementation clipped to the real preview canvas with subtler stroke/shadow.
+- `CameraMathTest.kt`: added tests for Golden Spiral portrait/landscape bounds, stabilization request plans, physical camera evidence model, and mode exclusivity.
+
+### Physical Verification Still Required
+
+- Actual saved JPEG dimensions from the target POCO phone/tablet.
+- Camera2 capability logs from the connected device.
+- Stabilization requested/result CaptureResult metadata on real camera sessions.
+- Portrait and landscape screenshots from the installed APK.
+- Confirmation whether Android publicly exposes a genuine 48 MP output.
+
 ## Current Status - 2026-07-28 10:16 +07:00
 
 Status: incomplete because mandatory POCO/device screenshots and physical capture verification are still unavailable.

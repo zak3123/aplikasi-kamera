@@ -47,6 +47,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.fatih.adaptivecompositioncamera.capability.DefaultStabilizationResolver
+import com.fatih.adaptivecompositioncamera.capability.StabilizationDecision
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
 import com.fatih.adaptivecompositioncamera.domain.model.CameraSessionState
@@ -193,13 +194,10 @@ class CameraRuntime(
                     quality = selectedVideoQuality,
                     stabilization = requestedStabilization,
                     fpsRange = videoFpsRange,
+                    mode = mode,
+                    requestedResolution = resolution,
                 )
-            } else {
-                _stabilizationStatus.value = "Off"
-                _stabilizationEvidence.value = "Not a video session"
             }
-            val preview = previewBuilder.build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
-            previewUseCase = preview
             val highResolutionMode = mode == CameraMode.MaximumResolution && resolution?.highResolution == true
             val maximumSensorMode = mode == CameraMode.MaximumResolution && resolution?.maximumSensorMode == true
             val captureBuilder = ImageCapture.Builder()
@@ -228,6 +226,18 @@ class CameraRuntime(
                     ).build()
                 captureBuilder.setResolutionSelector(resolutionSelector)
             }
+            if (mode != CameraMode.Video) {
+                configureStillRequest(
+                    previewBuilder = previewBuilder,
+                    captureBuilder = captureBuilder,
+                    cameraId = cameraId,
+                    mode = mode,
+                    resolution = resolution,
+                    stabilizationDecision = stabilizationDecision,
+                )
+            }
+            val preview = previewBuilder.build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
+            previewUseCase = preview
             val requestedCapture = captureBuilder.build()
             val recorder = Recorder.Builder()
                 .setQualitySelector(QualitySelector.from(selectedVideoQuality.toCameraXQuality()))
@@ -350,12 +360,16 @@ class CameraRuntime(
         quality: VideoQualitySetting,
         stabilization: VideoStabilizationMode,
         fpsRange: VideoFpsRange?,
+        mode: CameraMode,
+        requestedResolution: CameraResolution?,
     ) {
         val monitor = StabilizationResultMonitor(
             context = context,
             cameraId = cameraId,
             quality = quality,
             fpsRange = fpsRange,
+            mode = mode,
+            requestedResolution = requestedResolution,
             requested = stabilization,
             onStatus = {
                 _stabilizationStatus.value = it.summary
@@ -414,6 +428,62 @@ class CameraRuntime(
         }
     }
 
+    @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
+    private fun configureStillRequest(
+        previewBuilder: Preview.Builder,
+        captureBuilder: ImageCapture.Builder,
+        cameraId: String?,
+        mode: CameraMode,
+        resolution: CameraResolution?,
+        stabilizationDecision: StabilizationDecision,
+    ) {
+        val stabilization = stabilizationDecision.effective
+        val plan = stabilizationDecision.requestPlan
+        val monitor = StabilizationResultMonitor(
+            context = context,
+            cameraId = cameraId,
+            quality = VideoQualitySetting.Auto,
+            fpsRange = null,
+            mode = mode,
+            requestedResolution = resolution,
+            requested = stabilization,
+            onStatus = {
+                _stabilizationStatus.value = it.summary
+                _stabilizationEvidence.value = it.evidence
+            },
+        )
+        _stabilizationStatus.value = if (plan.verifyCaptureResult) {
+            "Requested ${plan.evidenceLabel}; awaiting CaptureResult"
+        } else {
+            "Stabilization off"
+        }
+        _stabilizationEvidence.value = if (plan.verifyCaptureResult) "CaptureResult pending" else "No still stabilization requested"
+        CameraEvidenceLogger.record(
+            context,
+            "STABILIZATION_REQUEST",
+            "camera=$cameraId mode=$mode requestedResolution=${resolution?.width}x${resolution?.height} " +
+                "effective=${stabilization.name} requestOis=${plan.requestOis} " +
+                "requestStandardEis=${plan.requestStandardEis} requestPreview=${plan.requestPreviewStabilization}",
+        )
+        fun applyStillOptions(extender: Camera2Interop.Extender<*>) {
+            extender.setCaptureRequestOption(
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
+            )
+            extender.setCaptureRequestOption(
+                CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                if (plan.requestOis) {
+                    CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON
+                } else {
+                    CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_OFF
+                },
+            )
+        }
+        applyStillOptions(Camera2Interop.Extender(previewBuilder))
+        applyStillOptions(Camera2Interop.Extender(captureBuilder))
+        Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(monitor)
+    }
+
     private data class StabilizationFrameEvidence(
         val summary: String,
         val evidence: String,
@@ -424,6 +494,8 @@ class CameraRuntime(
         private val cameraId: String?,
         private val quality: VideoQualitySetting,
         private val fpsRange: VideoFpsRange?,
+        private val mode: CameraMode,
+        private val requestedResolution: CameraResolution?,
         private val requested: VideoStabilizationMode,
         private val onStatus: (StabilizationFrameEvidence) -> Unit,
     ) : CameraCaptureSession.CaptureCallback() {
@@ -468,7 +540,8 @@ class CameraRuntime(
             }
             val crop = result[CaptureResult.SCALER_CROP_REGION]
             val evidence = buildString {
-                append("camera=$cameraId frame=${result.frameNumber} quality=${quality.labelStatic()} ")
+                append("camera=$cameraId frame=${result.frameNumber} mode=$mode quality=${quality.labelStatic()} ")
+                append("resolution=${requestedResolution?.width}x${requestedResolution?.height} ")
                 append("fpsRequested=${fpsRange?.label ?: "camera-managed"} ")
                 append("requestEis=$requestedEis requestOis=$requestedOis ")
                 append("resultEis=$resultEis resultOis=$resultOis ")
@@ -657,6 +730,7 @@ class CameraRuntime(
                 resolution = resolution,
                 targetRotation = targetRotation,
                 flashMode = flashMode,
+                stabilization = requestedStabilization,
             )
             _state.value = result.fold(
                 onSuccess = { CameraSessionState.Reconfiguring },

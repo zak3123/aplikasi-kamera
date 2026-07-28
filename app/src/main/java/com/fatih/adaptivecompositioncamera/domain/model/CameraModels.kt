@@ -156,6 +156,29 @@ data class StabilizationSupport(
 )
 
 @Serializable
+data class PhysicalCameraSummary(
+    val cameraId: String,
+    val parentLogicalCameraIds: List<String> = emptyList(),
+    val lensFacing: LensFacing = LensFacing.Unknown,
+    val lensRole: LensRole = LensRole.Unknown,
+    val sensorOrientation: Int? = null,
+    val activeArray: String? = null,
+    val maximumActiveArray: String? = null,
+    val pixelArray: String? = null,
+    val maximumPixelArray: String? = null,
+    val physicalSize: String? = null,
+    val focalLengths: List<Float> = emptyList(),
+    val apertures: List<Float> = emptyList(),
+    val minFocusDistance: Float? = null,
+    val normalJpegMaximum: CameraResolution? = null,
+    val highResolutionJpegMaximum: CameraResolution? = null,
+    val maximumResolutionJpegMaximum: CameraResolution? = null,
+    val rawMaximum: CameraResolution? = null,
+    val isOpenable: Boolean = false,
+    val unavailableReason: String? = null,
+)
+
+@Serializable
 data class ExtensionSupport(
     val auto: Boolean = false,
     val hdr: Boolean = false,
@@ -177,6 +200,7 @@ data class CameraCapability(
     val pixelArray: String?,
     val physicalSize: String? = null,
     val physicalCameraIds: List<String>,
+    val physicalCameraSummaries: List<PhysicalCameraSummary> = emptyList(),
     val focalLengths: List<Float>,
     val apertures: List<Float>,
     val hasFlash: Boolean,

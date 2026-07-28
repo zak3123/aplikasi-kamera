@@ -24,6 +24,7 @@ import com.fatih.adaptivecompositioncamera.domain.model.GuideStyle
 import com.fatih.adaptivecompositioncamera.domain.model.LevelReading
 import com.fatih.adaptivecompositioncamera.domain.model.SpiralOrientation
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
+import com.fatih.adaptivecompositioncamera.utility.FloatBounds
 import kotlin.math.roundToInt
 
 @Composable
@@ -279,9 +280,9 @@ private fun DrawScope.drawGoldenSpiral(
     style: GuideStyle,
     mirrored: Boolean,
 ) {
-    val fitted = CameraMath.fitGoldenRectangle(size.width, size.height)
-    if (fitted.width <= 0f || fitted.height <= 0f) return
-    val arcs = CameraMath.goldenSpiralArcs(size.width, size.height, iterations = 11)
+    val viewport = goldenSpiralGuideViewport(size.width, size.height)
+    if (viewport.width <= 0f || viewport.height <= 0f) return
+    val arcs = CameraMath.goldenSpiralArcs(size.width, size.height, iterations = 12)
     val path = Path()
     arcs.forEachIndexed { index, arc ->
         path.arcTo(
@@ -297,37 +298,36 @@ private fun DrawScope.drawGoldenSpiral(
         style.spiralOrientation == SpiralOrientation.BottomRight
     val flipX = orientationFlipX xor mirrored xor !style.spiralClockwise xor style.spiralHorizontalFlip
     val flipY = orientationFlipY xor style.spiralVerticalFlip
-    val pivot = Offset((fitted.left + fitted.right) / 2f, (fitted.top + fitted.bottom) / 2f)
-    val insetX = fitted.width * 0.03f
-    val insetY = fitted.height * 0.03f
+    val pivot = Offset((viewport.left + viewport.right) / 2f, (viewport.top + viewport.bottom) / 2f)
+    val guideStroke = Stroke(
+        width = stroke.width.coerceIn(0.65.dp.toPx(), 1.25.dp.toPx()),
+        pathEffect = stroke.pathEffect,
+        cap = StrokeCap.Round,
+    )
     withTransform({
-        scale(if (flipX) -0.94f else 0.94f, if (flipY) -0.94f else 0.94f, pivot)
+        if (flipX || flipY) {
+            scale(if (flipX) -1f else 1f, if (flipY) -1f else 1f, pivot)
+        }
     }) {
-        clipRect(fitted.left + insetX, fitted.top + insetY, fitted.right - insetX, fitted.bottom - insetY) {
-            val subtleStroke = Stroke(
-                width = (stroke.width * 0.46f).coerceAtLeast(0.55.dp.toPx()),
-                pathEffect = stroke.pathEffect,
-            )
-            val spiralStroke = Stroke(
-                width = stroke.width.coerceIn(0.75.dp.toPx(), 1.6.dp.toPx()),
-                pathEffect = stroke.pathEffect,
-            )
+        clipRect(0f, 0f, size.width, size.height) {
             guideRect(
-                Rect(fitted.left, fitted.top, fitted.right, fitted.bottom),
-                color.copy(alpha = color.alpha * 0.18f),
-                subtleStroke,
+                Rect(viewport.left, viewport.top, viewport.right, viewport.bottom),
+                color.copy(alpha = color.alpha * 0.12f),
+                Stroke(width = guideStroke.width * 0.7f, pathEffect = stroke.pathEffect),
                 false,
             )
-            if (style.outline) {
-                drawPath(
-                    path,
-                    Color.Black.copy(alpha = 0.42f),
-                    style = Stroke(width = spiralStroke.width + 0.9.dp.toPx(), pathEffect = stroke.pathEffect),
-                )
-            }
-            drawPath(path, color, style = spiralStroke)
+            drawPath(
+                path,
+                Color.Black.copy(alpha = 0.20f),
+                style = Stroke(width = guideStroke.width + 0.55.dp.toPx(), pathEffect = stroke.pathEffect, cap = StrokeCap.Round),
+            )
+            drawPath(path, color, style = guideStroke)
         }
     }
+}
+
+internal fun goldenSpiralGuideViewport(width: Float, height: Float): FloatBounds {
+    return CameraMath.fitGoldenRectangle(width, height)
 }
 
 /**

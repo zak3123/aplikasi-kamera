@@ -27,6 +27,7 @@ import android.view.Surface
 import androidx.annotation.RequiresApi
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
 import com.fatih.adaptivecompositioncamera.domain.model.FlashMode
+import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
 import com.fatih.adaptivecompositioncamera.media.AndroidMediaRepository
 import com.fatih.adaptivecompositioncamera.utility.CameraMath
 import java.util.concurrent.Executor
@@ -52,6 +53,7 @@ internal class MaximumResolutionCamera2Capture(
         resolution: CameraResolution,
         targetRotation: Int,
         flashMode: FlashMode,
+        stabilization: VideoStabilizationMode = VideoStabilizationMode.Off,
     ): Result<Uri> = runCatching {
         val request = HighResolutionRequest.validate(
             context = context,
@@ -59,6 +61,7 @@ internal class MaximumResolutionCamera2Capture(
             resolution = resolution,
             targetRotation = targetRotation,
             flashMode = flashMode,
+            stabilization = stabilization,
         )
         withTimeout(35_000L) {
             suspendCancellableCoroutine { continuation ->
@@ -84,11 +87,14 @@ internal class MaximumResolutionCamera2Capture(
         val resolution: CameraResolution,
         val targetRotation: Int,
         val flashMode: FlashMode,
+        val stabilization: VideoStabilizationMode,
         val sensorOrientation: Int,
         val frontFacing: Boolean,
         val useMaximumSensorMode: Boolean,
         val supportedAeModes: Set<Int>,
         val supportedAfModes: Set<Int>,
+        val supportedOisModes: Set<Int>,
+        val requestOis: Boolean,
     ) {
         companion object {
             fun validate(
@@ -97,6 +103,7 @@ internal class MaximumResolutionCamera2Capture(
                 resolution: CameraResolution,
                 targetRotation: Int,
                 flashMode: FlashMode,
+                stabilization: VideoStabilizationMode,
             ): HighResolutionRequest {
                 require(resolution.maximumSensorMode || resolution.highResolution) {
                     "The requested output is not exposed as a slow/high-resolution Camera2 JPEG."
@@ -133,18 +140,28 @@ internal class MaximumResolutionCamera2Capture(
                     "${resolution.width}x${resolution.height} is absent from the active Camera2 " +
                         if (maximumMode) "maximum-resolution map." else "high-resolution map."
                 }
+                val supportedOisModes = characteristics[
+                    CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION
+                ]?.toSet() ?: emptySet()
+                val requestOis = stabilization in setOf(
+                    VideoStabilizationMode.Optical,
+                    VideoStabilizationMode.Auto,
+                ) && CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON in supportedOisModes
                 CameraEvidenceLogger.record(
                     context,
                     "MAX_CAPTURE",
                     "validated camera=$cameraId requested=${resolution.width}x${resolution.height} " +
                         "megapixels=${resolution.megapixels} maximumPixelMode=$maximumMode " +
-                        "advertised=${advertised.joinToString { "${it.width}x${it.height}" }}",
+                        "advertised=${advertised.joinToString { "${it.width}x${it.height}" }} " +
+                        "requestedStabilization=${stabilization.name} supportedOis=$supportedOisModes " +
+                        "requestOis=$requestOis",
                 )
                 return HighResolutionRequest(
                     cameraId = cameraId,
                     resolution = resolution,
                     targetRotation = targetRotation,
                     flashMode = flashMode,
+                    stabilization = stabilization,
                     sensorOrientation = characteristics[CameraCharacteristics.SENSOR_ORIENTATION] ?: 0,
                     frontFacing = characteristics[CameraCharacteristics.LENS_FACING] ==
                         CameraCharacteristics.LENS_FACING_FRONT,
@@ -155,6 +172,8 @@ internal class MaximumResolutionCamera2Capture(
                     supportedAfModes = characteristics[
                         CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES
                     ]?.toSet() ?: emptySet(),
+                    supportedOisModes = supportedOisModes,
+                    requestOis = requestOis,
                 )
             }
         }
@@ -299,6 +318,16 @@ internal class MaximumResolutionCamera2Capture(
                     if (request.useMaximumSensorMode) {
                         set(CaptureRequest.SENSOR_PIXEL_MODE, CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION)
                     }
+                    if (request.supportedOisModes.isNotEmpty()) {
+                        set(
+                            CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                            if (request.requestOis) {
+                                CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON
+                            } else {
+                                CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_OFF
+                            },
+                        )
+                    }
                     set(CaptureRequest.JPEG_QUALITY, 95.toByte())
                     set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation())
                 }.build()
@@ -308,6 +337,7 @@ internal class MaximumResolutionCamera2Capture(
                     "submit aeMode=${captureRequest[CaptureRequest.CONTROL_AE_MODE]} " +
                         "afMode=${captureRequest[CaptureRequest.CONTROL_AF_MODE]} " +
                         "pixelMode=${captureRequest[CaptureRequest.SENSOR_PIXEL_MODE]} " +
+                        "requestOis=${captureRequest[CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE]} " +
                         "jpegOrientation=${captureRequest[CaptureRequest.JPEG_ORIENTATION]}",
                 )
                 session.capture(captureRequest, captureCallback, handler)
@@ -324,6 +354,9 @@ internal class MaximumResolutionCamera2Capture(
                     append("frame=${result.frameNumber}")
                     append(",sensorTimestampNs=${result[CaptureResult.SENSOR_TIMESTAMP]}")
                     append(",pixelMode=${result[CaptureResult.SENSOR_PIXEL_MODE]}")
+                    append(",requestedOis=${request[CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE]}")
+                    append(",resultOis=${result[CaptureResult.LENS_OPTICAL_STABILIZATION_MODE]}")
+                    append(",crop=${result[CaptureResult.SCALER_CROP_REGION]}")
                     append(",aeState=${result[CaptureResult.CONTROL_AE_STATE]}")
                     append(",afState=${result[CaptureResult.CONTROL_AF_STATE]}")
                     append(",flashState=${result[CaptureResult.FLASH_STATE]}")

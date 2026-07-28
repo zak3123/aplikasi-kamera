@@ -1,5 +1,30 @@
 # Stabilization Audit
 
+## Core Engine Update - 2026-07-28 12:13 +07:00
+
+Status: source pipeline updated; CaptureResult verification is still blocked because `adb devices -l` returned no connected devices.
+
+Implemented in this pass:
+
+- `DefaultStabilizationResolver` now returns a `StabilizationRequestPlan` describing whether a mode should request OIS, standard EIS, preview stabilization, or Off.
+- Still modes now prefer OIS for Auto only when Android reports optical stabilization.
+- Video modes now prefer Preview Stabilization, then Standard EIS, then OIS, avoiding blind OIS+EIS activation.
+- `CameraRuntime` now applies still-photo OIS through Camera2 interop for both Preview and ImageCapture builders.
+- `CameraRuntime` now monitors CaptureResult for still modes as well as video modes and records mode, requested resolution, requested/result EIS, requested/result OIS, FPS, crop, exposure, and frame duration.
+- `MaximumResolutionCamera2Capture` now applies OIS in the dedicated Camera2 high/maximum-resolution JPEG request when Android exposes OIS and records requested/result OIS in `MAX_CAPTURE_RESULT`.
+
+Not proven in this pass:
+
+- HAL acceptance of OIS/EIS/Preview Stabilization on the POCO phone/tablet.
+- Per-resolution, per-FPS, zoom, crop, and high-resolution stabilization compatibility on target hardware.
+
+Required next device evidence:
+
+- `STABILIZATION_REQUEST`
+- `STABILIZATION_RESULT`
+- `MAX_CAPTURE_RESULT`
+- requested mode, actual CaptureResult value, resolution, FPS, zoom, and crop for Off/OIS/EIS/Preview modes
+
 Completion time: 2026-07-27 21:02:21 +07:00
 
 Update time: 2026-07-28 05:29 +07:00

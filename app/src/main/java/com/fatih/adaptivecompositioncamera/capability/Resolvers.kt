@@ -14,6 +14,8 @@ import com.fatih.adaptivecompositioncamera.domain.model.ModeCompatibilityResult
 import com.fatih.adaptivecompositioncamera.domain.model.StabilizationResolver
 import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
 import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
+import com.fatih.adaptivecompositioncamera.domain.model.isStillPhotoMode
+import com.fatih.adaptivecompositioncamera.domain.model.isVideoMode
 
 class CameraConfigurationResolver {
     fun availableModes(capability: CameraCapability): List<CameraMode> = buildList {
@@ -61,7 +63,10 @@ class CameraConfigurationResolver {
 class ModeConflictResolver {
     fun resolve(configuration: CameraConfiguration, capability: CameraCapability): CameraConfiguration {
         return when (configuration.mode) {
-            CameraMode.Documents -> configuration.copy(stabilizationEnabled = capability.stabilization.optical)
+            CameraMode.Documents -> configuration.copy(
+                stabilizationEnabled = capability.stabilization.optical,
+                resolution = highestStillResolutionForMode(capability, CameraMode.Documents, configuration.resolution),
+            )
             CameraMode.Video -> configuration.copy(
                 resolution = configuration.resolution?.takeIf { capability.videoResolutions.any { video ->
                     video.width == it.width && video.height == it.height
@@ -73,10 +78,40 @@ class ModeConflictResolver {
                     capability.highSpeedVideo.any { it.width == resolution.width && it.height == resolution.height }
                 } ?: configuration.resolution,
             )
-            CameraMode.MaximumResolution -> configuration.copy(stabilizationEnabled = false)
+            CameraMode.Pro -> configuration.copy(
+                stabilizationEnabled = configuration.stabilizationEnabled && capability.stabilization.optical,
+                resolution = highestStillResolutionForMode(capability, CameraMode.Pro, configuration.resolution),
+            )
+            CameraMode.MaximumResolution -> configuration.copy(
+                stabilizationEnabled = false,
+                resolution = capability.maximumSensorResolution
+                    ?: capability.highResolutionJpegs.firstOrNull()
+                    ?: configuration.resolution,
+            )
             else -> configuration
         }
     }
+
+    fun mutuallyExclusiveModes(mode: CameraMode): Set<CameraMode> = when (mode) {
+        CameraMode.Documents -> setOf(CameraMode.Pro, CameraMode.Video, CameraMode.MaximumResolution)
+        CameraMode.Pro -> setOf(CameraMode.Documents, CameraMode.Video)
+        CameraMode.Video -> CameraMode.entries.filter { it != CameraMode.Video && it.isStillPhotoMode }.toSet()
+        CameraMode.SlowMotion,
+        CameraMode.HighFrameRate,
+        CameraMode.TimeLapse,
+        -> CameraMode.entries.filter { it.isStillPhotoMode }.toSet()
+        else -> emptySet()
+    }
+
+    fun requiresStillOnlySession(mode: CameraMode): Boolean = mode in setOf(
+        CameraMode.Documents,
+        CameraMode.Pro,
+        CameraMode.MaximumResolution,
+        CameraMode.Burst,
+        CameraMode.PanoramaExperimental,
+    )
+
+    fun requiresAnalysis(mode: CameraMode): Boolean = mode == CameraMode.Documents
 
     fun isCompositionAllowed(mode: CameraMode, guide: CompositionGuide): Boolean {
         if (guide == CompositionGuide.None) return true
@@ -125,6 +160,21 @@ class ModeConflictResolver {
                 else -> null
             },
         )
+    }
+
+    private fun highestStillResolutionForMode(
+        capability: CameraCapability,
+        mode: CameraMode,
+        requested: CameraResolution?,
+    ): CameraResolution? {
+        val choices = when (mode) {
+            CameraMode.Pro -> capability.jpegResolutions.ifEmpty { capability.selectablePhotoResolutions }
+            CameraMode.Documents -> capability.jpegResolutions.ifEmpty { capability.selectablePhotoResolutions }
+            else -> capability.selectablePhotoResolutions
+        }
+        return choices.firstOrNull { it.id == requested?.id }
+            ?: choices.firstOrNull { it.recommended }
+            ?: choices.firstOrNull()
     }
 }
 
@@ -197,12 +247,7 @@ class DefaultStabilizationResolver : StabilizationResolver {
     ): StabilizationDecision {
         val supported = supportedModes(support, mode)
         val effective = when {
-            requested == VideoStabilizationMode.Auto -> listOf(
-                VideoStabilizationMode.Preview,
-                VideoStabilizationMode.Standard,
-                VideoStabilizationMode.Optical,
-                VideoStabilizationMode.Off,
-            ).first { it in supported }
+            requested == VideoStabilizationMode.Auto -> autoPreference(mode).first { it in supported }
             requested in supported -> requested
             else -> VideoStabilizationMode.Off
         }
@@ -216,6 +261,20 @@ class DefaultStabilizationResolver : StabilizationResolver {
             effective = effective,
             supported = supported,
             fallbackReason = reason,
+            requestPlan = StabilizationRequestPlan.from(mode, effective),
+        )
+    }
+
+    private fun autoPreference(mode: CameraMode): List<VideoStabilizationMode> = when {
+        mode.isVideoMode -> listOf(
+            VideoStabilizationMode.Preview,
+            VideoStabilizationMode.Standard,
+            VideoStabilizationMode.Optical,
+            VideoStabilizationMode.Off,
+        )
+        else -> listOf(
+            VideoStabilizationMode.Optical,
+            VideoStabilizationMode.Off,
         )
     }
 
@@ -251,7 +310,36 @@ data class StabilizationDecision(
     val effective: VideoStabilizationMode,
     val supported: List<VideoStabilizationMode>,
     val fallbackReason: String?,
+    val requestPlan: StabilizationRequestPlan = StabilizationRequestPlan.from(CameraMode.Photo, effective),
 )
+
+data class StabilizationRequestPlan(
+    val requestOis: Boolean,
+    val requestStandardEis: Boolean,
+    val requestPreviewStabilization: Boolean,
+    val verifyCaptureResult: Boolean,
+    val evidenceLabel: String,
+) {
+    companion object {
+        fun from(mode: CameraMode, effective: VideoStabilizationMode): StabilizationRequestPlan {
+            val requestOis = effective == VideoStabilizationMode.Optical
+            val requestStandard = mode.isVideoMode && effective == VideoStabilizationMode.Standard
+            val requestPreview = mode.isVideoMode && effective == VideoStabilizationMode.Preview
+            return StabilizationRequestPlan(
+                requestOis = requestOis,
+                requestStandardEis = requestStandard,
+                requestPreviewStabilization = requestPreview,
+                verifyCaptureResult = requestOis || requestStandard || requestPreview,
+                evidenceLabel = when {
+                    requestPreview -> "PRE"
+                    requestStandard -> "EIS"
+                    requestOis -> "OIS"
+                    else -> "OFF"
+                },
+            )
+        }
+    }
+}
 
 class DefaultExtensionResolver : ExtensionResolver {
     override fun availableExtensions(capability: CameraCapability): ExtensionSupport = capability.extensions

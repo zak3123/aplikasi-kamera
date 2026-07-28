@@ -31,7 +31,9 @@ import com.fatih.adaptivecompositioncamera.ui.camera.CameraUiTokens
 import com.fatih.adaptivecompositioncamera.ui.camera.cameraUiLayoutPolicy
 import com.fatih.adaptivecompositioncamera.ui.camera.documentAnalysisResolutionKey
 import com.fatih.adaptivecompositioncamera.ui.camera.modeResolutionKey
+import com.fatih.adaptivecompositioncamera.composition.goldenSpiralGuideViewport
 import com.fatih.adaptivecompositioncamera.composition.perspectiveEdgePoints
+import com.fatih.adaptivecompositioncamera.domain.model.PhysicalCameraSummary
 import kotlin.math.cos
 import kotlin.math.sin
 import org.junit.Assert.assertEquals
@@ -202,6 +204,21 @@ class CameraMathTest {
     }
 
     @Test
+    fun goldenSpiralRendererViewportFitsPortraitAndLandscapePreview() {
+        listOf(1080f to 1920f, 1920f to 1080f, 2400f to 1080f, 1080f to 2400f).forEach { (width, height) ->
+            val viewport = goldenSpiralGuideViewport(width, height)
+            assertTrue(viewport.left >= 0f)
+            assertTrue(viewport.top >= 0f)
+            assertTrue(viewport.right <= width)
+            assertTrue(viewport.bottom <= height)
+            assertEquals(CameraMath.PHI, viewport.width / viewport.height, 0.001f)
+            CameraMath.goldenSpiralArcs(width, height, iterations = 12).forEach { arc ->
+                assertTrue(containsWithTolerance(viewport, arc.square, tolerance = 0.1f))
+            }
+        }
+    }
+
+    @Test
     fun goldenSpiralQuarterArcsAreContinuousAndStayInsideGoldenSquares() {
         val fitted = CameraMath.fitGoldenRectangle(1080f, 1920f)
         val arcs = CameraMath.goldenSpiralArcs(1080f, 1920f)
@@ -295,6 +312,17 @@ class CameraMathTest {
         )
         val requested = CameraConfiguration(LensFacing.Rear, "0", CameraMode.SlowMotion, resolution(1920, 1080), stabilizationEnabled = true)
         assertFalse(ModeConflictResolver().resolve(requested, capability).stabilizationEnabled)
+    }
+
+    @Test
+    fun modeConflictMatrixKeepsProDocumentsAndVideoMutuallyExclusive() {
+        val resolver = ModeConflictResolver()
+        assertTrue(CameraMode.Pro in resolver.mutuallyExclusiveModes(CameraMode.Documents))
+        assertTrue(CameraMode.Documents in resolver.mutuallyExclusiveModes(CameraMode.Pro))
+        assertTrue(CameraMode.Pro in resolver.mutuallyExclusiveModes(CameraMode.Video))
+        assertTrue(resolver.requiresStillOnlySession(CameraMode.Documents))
+        assertTrue(resolver.requiresAnalysis(CameraMode.Documents))
+        assertFalse(resolver.requiresAnalysis(CameraMode.Pro))
     }
 
     @Test
@@ -435,6 +463,44 @@ class CameraMathTest {
     }
 
     @Test
+    fun stabilizationDecisionDescribesActualCamera2Requests() {
+        val resolver = DefaultStabilizationResolver()
+        val fullSupport = StabilizationSupport(optical = true, electronicVideo = true, preview = true)
+        val stillAuto = resolver.resolve(VideoStabilizationMode.Auto, fullSupport, CameraMode.Photo)
+        assertEquals(VideoStabilizationMode.Optical, stillAuto.effective)
+        assertTrue(stillAuto.requestPlan.requestOis)
+        assertFalse(stillAuto.requestPlan.requestStandardEis)
+        assertEquals("OIS", stillAuto.requestPlan.evidenceLabel)
+
+        val videoAuto = resolver.resolve(VideoStabilizationMode.Auto, fullSupport, CameraMode.Video)
+        assertEquals(VideoStabilizationMode.Preview, videoAuto.effective)
+        assertTrue(videoAuto.requestPlan.requestPreviewStabilization)
+        assertFalse(videoAuto.requestPlan.requestOis)
+        assertEquals("PRE", videoAuto.requestPlan.evidenceLabel)
+    }
+
+    @Test
+    fun physicalCameraSummaryCarriesPublicSensorEvidence() {
+        val physical = PhysicalCameraSummary(
+            cameraId = "0a",
+            parentLogicalCameraIds = listOf("0"),
+            lensFacing = LensFacing.Rear,
+            normalJpegMaximum = resolution(4624, 3472),
+            maximumResolutionJpegMaximum = resolution(8000, 6000).copy(maximumSensorMode = true),
+        )
+        val capability = fakeCapability(
+            jpeg = listOf(resolution(4624, 3472, recommended = true)),
+            maximumJpeg = listOf(resolution(8000, 6000).copy(maximumSensorMode = true)),
+        ).copy(
+            physicalCameraIds = listOf("0a"),
+            physicalCameraSummaries = listOf(physical),
+        )
+        assertEquals("0a", capability.physicalCameraSummaries.single().cameraId)
+        assertEquals(8000, capability.physicalCameraSummaries.single().maximumResolutionJpegMaximum?.width)
+        assertEquals(8000, capability.maximumSensorResolution?.width)
+    }
+
+    @Test
     fun perspectiveGuideUsesEveryPreviewEdgeWithoutLeavingBounds() {
         val points = perspectiveEdgePoints(width = 400f, height = 300f, lineCount = 5)
         assertTrue(points.any { it.x == 0f })
@@ -483,6 +549,15 @@ class CameraMathTest {
         tolerance: Float = 0.05f,
     ): Boolean = point.x in (bounds.left - tolerance)..(bounds.right + tolerance) &&
         point.y in (bounds.top - tolerance)..(bounds.bottom + tolerance)
+
+    private fun containsWithTolerance(
+        outer: com.fatih.adaptivecompositioncamera.utility.FloatBounds,
+        inner: com.fatih.adaptivecompositioncamera.utility.FloatBounds,
+        tolerance: Float = 0.05f,
+    ): Boolean = inner.left >= outer.left - tolerance &&
+        inner.top >= outer.top - tolerance &&
+        inner.right <= outer.right + tolerance &&
+        inner.bottom <= outer.bottom + tolerance
 
     private fun resolution(width: Int, height: Int, recommended: Boolean = false): CameraResolution = CameraResolution(
         width = width,

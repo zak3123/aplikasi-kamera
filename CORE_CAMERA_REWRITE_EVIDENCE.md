@@ -1,5 +1,34 @@
 # Core Camera Rewrite Evidence
 
+## Core Engine Update - 2026-07-28 12:13 +07:00
+
+This pass materially changed the exact core files named in the static-comparison rejection:
+
+- `AndroidCameraCapabilityRepository.kt`
+- `MaximumResolutionCamera2Capture.kt`
+- `CameraRuntime.kt`
+- `Resolvers.kt` / `DefaultStabilizationResolver`
+- `CompositionGuideOverlay.kt`
+- `ModeConflictResolver`
+
+Local validation:
+
+- Targeted Kotlin compilation: success.
+- Targeted `CameraMathTest`: success.
+- Final local validation: `:app:assembleDebug :app:test :app:lint` success.
+- APK: `D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.8.1-core-engine-debug.apk`
+- APK SHA256: `CB47F343799B1622A75E924FD4D3B05EB1A2402F5D791DC66922D4AD12AC7A8D`
+
+Physical evidence remains missing:
+
+- `adb devices -l` returned no connected devices.
+- No actual JPEG dimensions were captured from target hardware.
+- No real Camera2 capability log from the POCO device was captured.
+- No stabilization CaptureResult metadata from target hardware was captured.
+- No portrait/landscape screenshots were captured.
+
+Therefore this is not a completion claim.
+
 Updated: 2026-07-28 04:47:07 +07:00
 
 Status: `SOURCE_REWRITE_BUILT_AWAITING_PHYSICAL_DEVICE`
