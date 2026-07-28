@@ -750,7 +750,7 @@ internal val professionalGuideCatalog = listOf(
 )
 
 @Composable
-fun MoreModesSheet(
+fun PocoStyleMoreScreen(
     modes: List<CameraMode>,
     activeMode: CameraMode,
     maxResolution: CameraResolution?,
@@ -786,7 +786,7 @@ fun MoreModesSheet(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         rowModes.forEach { mode ->
-                            StockModeGridItem(
+                            PocoStyleMoreItem(
                                 mode = mode,
                                 active = mode == activeMode,
                                 maxResolution = maxResolution,
@@ -833,7 +833,7 @@ fun MoreModesSheet(
 }
 
 @Composable
-private fun StockModeGridItem(
+private fun PocoStyleMoreItem(
     mode: CameraMode,
     active: Boolean,
     maxResolution: CameraResolution?,

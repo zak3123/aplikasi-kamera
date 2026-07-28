@@ -8,6 +8,7 @@ import com.fatih.adaptivecompositioncamera.domain.model.CameraCapability
 import com.fatih.adaptivecompositioncamera.domain.model.CameraConfiguration
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
+import com.fatih.adaptivecompositioncamera.domain.model.CameraUiState
 import com.fatih.adaptivecompositioncamera.domain.model.CompositionGuide
 import com.fatih.adaptivecompositioncamera.domain.model.ExtensionSupport
 import com.fatih.adaptivecompositioncamera.domain.model.GuideStyle
@@ -16,6 +17,7 @@ import com.fatih.adaptivecompositioncamera.domain.model.HighSpeedVideoOption
 import com.fatih.adaptivecompositioncamera.domain.model.LensFacing
 import com.fatih.adaptivecompositioncamera.domain.model.LensRole
 import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
+import com.fatih.adaptivecompositioncamera.domain.model.AppSettings
 import com.fatih.adaptivecompositioncamera.domain.model.PhotoQualityPreset
 import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
 import com.fatih.adaptivecompositioncamera.domain.model.VideoQualitySetting
@@ -90,6 +92,15 @@ class CameraMathTest {
         assertEquals(0.55f, style.opacity, 0.0f)
         assertEquals(1.0f, style.thicknessDp, 0.0f)
         assertFalse(style.outline)
+        assertEquals(CompositionGuide.None, AppSettings().guide)
+    }
+
+    @Test
+    fun cameraUiStateKeepsMoreOutOfCaptureModes() {
+        val state = CameraUiState(activeCaptureMode = CameraMode.Pro, moreSelectorVisible = true)
+        assertEquals(CameraMode.Pro, state.activeCaptureMode)
+        assertFalse(state.moreIsCaptureMode)
+        assertTrue(state.onlyOneCaptureModeActive)
     }
 
     @Test

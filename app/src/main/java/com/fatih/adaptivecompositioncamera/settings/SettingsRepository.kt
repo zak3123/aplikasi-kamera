@@ -39,7 +39,7 @@ class SettingsRepository(private val context: Context) {
                 else stored.substring(0, separator) to stored.substring(separator + 1)
             }.toMap(),
             mode = prefs[modeKey]?.let(::cameraModeFromStoredValue) ?: CameraMode.Photo,
-            guide = prefs[guideKey]?.let(::guideFromStoredValue) ?: CompositionGuide.RuleOfThirds,
+            guide = prefs[guideKey]?.let(::guideFromStoredValue) ?: CompositionGuide.None,
             photoAspectRatio = prefs[photoAspectRatioKey]?.let { stored ->
                 runCatching { PhotoAspectRatio.valueOf(stored) }.getOrDefault(PhotoAspectRatio.FullSensor)
             } ?: PhotoAspectRatio.FullSensor,

@@ -6,6 +6,8 @@ Update time: 2026-07-28 05:29 +07:00
 
 POCO-reference update time: 2026-07-28 09:01 +07:00
 
+Replacement update time: 2026-07-28 09:45 +07:00
+
 ## Scope
 
 This pass repaired the existing native Compose camera presentation layer in place. It did not create a duplicate app, duplicate camera repository, WebView UI, or sample-camera replacement.
@@ -24,6 +26,9 @@ This pass repaired the existing native Compose camera presentation layer in plac
 - The top bar now has a compact expand/collapse quick-control affordance.
 - Expanded quick controls are shown in a small anchored dark panel instead of a settings dashboard.
 - Top control icons and labels use an `OrientationEventListener` driven rotation target with Compose animation.
+- Main camera chrome is now routed through `PocoStyleCameraChrome.kt`, including `PocoStyleTopControls`, `PocoStyleQuickSettings`, and `PocoStyleShutterControls`.
+- `PocoStyleMoreScreen` replaces the old More screen name and implementation.
+- `CameraUiState` now records the active capture mode and transient panel visibility separately; `More` is explicitly not a capture mode.
 
 ## Pro Mode
 
@@ -55,6 +60,7 @@ This pass repaired the existing native Compose camera presentation layer in plac
 - Golden Spiral still uses the repaired single-path renderer from the previous pass.
 - The overlay is clipped to the fitted preview frame and does not draw over the control regions.
 - Golden Spiral was further reduced in visual weight: lower default opacity, thinner stroke, no default outline, no helper-square clutter.
+- Default guide selection is now Off.
 
 ## Unverified Visual Items
 

@@ -260,7 +260,7 @@ data class AppSettings(
     val selectedCameraId: String? = null,
     val selectedResolutionIds: Map<String, String> = emptyMap(),
     val mode: CameraMode = CameraMode.Photo,
-    val guide: CompositionGuide = CompositionGuide.RuleOfThirds,
+    val guide: CompositionGuide = CompositionGuide.None,
     val photoAspectRatio: PhotoAspectRatio = PhotoAspectRatio.FullSensor,
     val matchPreviewCrop: Boolean = true,
     val keepScreenAwake: Boolean = true,
@@ -296,6 +296,22 @@ data class CameraDiagnostics(
     val lastCaptureError: String? = null,
     val lastRecordingError: String? = null,
 )
+
+data class CameraUiState(
+    val activeCaptureMode: CameraMode = CameraMode.Photo,
+    val sessionState: CameraSessionState = CameraSessionState.Discovering,
+    val activeCameraId: String? = null,
+    val selectedResolutionLabel: String? = null,
+    val stabilizationLabel: String? = null,
+    val quickSettingsExpanded: Boolean = false,
+    val moreSelectorVisible: Boolean = false,
+    val compositionSelectorVisible: Boolean = false,
+    val proControlVisible: Boolean = false,
+    val documentModeActive: Boolean = false,
+) {
+    val moreIsCaptureMode: Boolean get() = false
+    val onlyOneCaptureModeActive: Boolean get() = true
+}
 
 sealed interface CameraSessionState {
     data object Uninitialized : CameraSessionState

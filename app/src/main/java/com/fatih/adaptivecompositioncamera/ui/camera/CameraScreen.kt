@@ -124,6 +124,7 @@ import com.fatih.adaptivecompositioncamera.domain.model.CameraCapability
 import com.fatih.adaptivecompositioncamera.domain.model.CameraDiagnostics
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
+import com.fatih.adaptivecompositioncamera.domain.model.CameraUiState
 import com.fatih.adaptivecompositioncamera.domain.model.CapabilityReport
 import com.fatih.adaptivecompositioncamera.domain.model.CompositionGuide
 import com.fatih.adaptivecompositioncamera.domain.model.FlashMode
@@ -331,6 +332,18 @@ fun CameraScreen(
     var showMoreSheet by remember { mutableStateOf(false) }
     var showVideoSettingsSheet by remember { mutableStateOf(false) }
     var showQuickSettings by remember { mutableStateOf(false) }
+    val cameraUiState = CameraUiState(
+        activeCaptureMode = settings.mode,
+        sessionState = sessionState,
+        activeCameraId = activeCameraId,
+        selectedResolutionLabel = estimatedOutputLabel,
+        stabilizationLabel = videoStabilization.takeUnless { it == VideoStabilizationMode.Unsupported }?.shortLabel(),
+        quickSettingsExpanded = showQuickSettings,
+        moreSelectorVisible = showMoreSheet,
+        compositionSelectorVisible = showCompositionSheet,
+        proControlVisible = settings.mode == CameraMode.Pro && proDetailsVisible,
+        documentModeActive = settings.mode == CameraMode.Documents,
+    )
     var guideStyle by remember { mutableStateOf(GuideStyle()) }
     var previousPhotoGuide by remember {
         mutableStateOf(settings.guide.takeIf { it != CompositionGuide.None } ?: CompositionGuide.RuleOfThirds)
@@ -953,7 +966,7 @@ fun CameraScreen(
         }
 
         if (!isRecording && !captureInProgress) {
-            CameraTopBar(
+            PocoStyleTopControls(
                 modifier = (if (policy.landscape) Modifier.align(Alignment.TopStart) else Modifier.align(Alignment.TopCenter))
                     .statusBarsPadding().displayCutoutPadding().padding(horizontal = 8.dp, vertical = 6.dp),
                 hasFlash = runtimeInfo.hasFlash || (isFront && settings.screenFlash),
@@ -966,13 +979,13 @@ fun CameraScreen(
                 },
                 timerSeconds = timerSeconds,
                 onTimer = { timerSeconds = timerSeconds.nextTimer() },
-                quickSettingsExpanded = showQuickSettings,
+                quickSettingsExpanded = cameraUiState.quickSettingsExpanded,
                 onQuickSettings = { showQuickSettings = !showQuickSettings },
-                captureFormatControlsVisible = settings.mode != CameraMode.Documents,
-                aspectRatioLabel = if (settings.mode == CameraMode.Video) {
+                captureFormatControlsVisible = !cameraUiState.documentModeActive,
+                aspectRatioLabel = if (cameraUiState.activeCaptureMode == CameraMode.Video) {
                     runtimeInfo.requestedFpsRange?.let { "${it.max} FPS" } ?: "FPS"
                 } else effectivePhotoAspect.shortLabel(),
-                resolutionLabel = if (settings.mode == CameraMode.Video) {
+                resolutionLabel = if (cameraUiState.activeCaptureMode == CameraMode.Video) {
                     runtimeInfo.selectedVideoQuality.displayLabel()
                 } else if (configurationMismatch != null) {
                     actualSavedResolution?.substringAfter('(')?.substringBefore(')') ?: estimatedOutputLabel
@@ -989,14 +1002,10 @@ fun CameraScreen(
                         showVideoSettingsSheet = true
                     } else if (resolutions.isNotEmpty()) showResolutionSheet = true
                 },
-                videoStatusLabel = if (videoStabilizationOptions.isNotEmpty()) {
-                    videoStabilization.shortLabel()
-                } else {
-                    null
-                },
-                onVideoStatus = { showVideoSettingsSheet = true },
-                compositionVisible = settings.mode != CameraMode.Documents,
-                compositionActive = settings.mode != CameraMode.Documents && settings.guide != CompositionGuide.None,
+                stabilizationLabel = cameraUiState.stabilizationLabel?.takeIf { videoStabilizationOptions.isNotEmpty() },
+                onStabilization = { showVideoSettingsSheet = true },
+                compositionVisible = !cameraUiState.documentModeActive,
+                compositionActive = !cameraUiState.documentModeActive && settings.guide != CompositionGuide.None,
                 onComposition = { showCompositionSheet = true },
                 onSettings = onOpenSettings,
                 controlRotationDegrees = controlRotationDegrees,
@@ -1010,7 +1019,7 @@ fun CameraScreen(
                 .displayCutoutPadding()
                 .padding(top = if (policy.landscape) 58.dp else 62.dp, start = 8.dp, end = 8.dp),
         ) {
-            QuickSettingsPanel(
+            PocoStyleQuickSettings(
                 hasAspectRatio = settings.mode != CameraMode.Documents,
                 hasResolution = settings.mode != CameraMode.Documents,
                 hasComposition = settings.mode != CameraMode.Documents,
@@ -1133,7 +1142,7 @@ fun CameraScreen(
             )
         }
 
-        CameraBottomControls(
+        PocoStyleShutterControls(
             modifier = if (policy.landscape) {
                 Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(policy.captureRailWidth)
                     .navigationBarsPadding().displayCutoutPadding()
@@ -1142,7 +1151,7 @@ fun CameraScreen(
                     .widthIn(max = policy.controlsMaximumWidth).navigationBarsPadding()
             },
             landscape = policy.landscape,
-            activeMode = settings.mode,
+            activeMode = cameraUiState.activeCaptureMode,
             availableModes = availableModes,
             availableCameras = availableCameras.filter {
                 it.lensFacing == lensFacing || it.lensFacing == LensFacing.External
@@ -1183,6 +1192,7 @@ fun CameraScreen(
             onMode = { if (!isRecording && !captureInProgress) selectMode(it) },
             onMore = { if (!isRecording && !captureInProgress) showMoreSheet = true },
             onShutter = { if (settings.mode == CameraMode.Video) toggleVideo() else capturePhoto() },
+            controlRotationDegrees = controlRotationDegrees,
         )
 
         if (flashVisible) Box(Modifier.fillMaxSize().background(Color.White))
@@ -1257,7 +1267,7 @@ fun CameraScreen(
         )
     }
     if (showMoreSheet) {
-        MoreModesSheet(
+        PocoStyleMoreScreen(
             modes = availableModes,
             activeMode = settings.mode,
             maxResolution = activeCapability?.displayMaximumResolution,

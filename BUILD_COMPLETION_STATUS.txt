@@ -1,12 +1,12 @@
 STATUS=INCOMPLETE_PHYSICAL_DEVICE_VERIFICATION_REQUIRED
 PROJECT_PATH=D:\aplikasi-kamera
-APK_PATH=D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.8.0-poco-reference-debug.apk
+APK_PATH=D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.8.0-poco-clone-debug.apk
 BUILD_RESULT=SUCCESS_:app:assembleDebug
 TEST_RESULT=SUCCESS_:app:testDebugUnitTest
 LINT_RESULT=SUCCESS_:app:lintDebug
 CORE_CAMERA_REWRITE=IMPLEMENTED
 APK_STATIC_DIFF=CLASSES3_5_7_8_10_CHANGED
-UI_REWRITE_VERIFIED=unverified_no_adb_device
+UI_REWRITE_VERIFIED=local_structural_rewrite_no_adb_screenshots
 POCO_PHONE_TESTED=false
 ALL_PUBLIC_CAMERAS_ENUMERATED=unverified_no_adb_device
 MODE_EXCLUSIVITY_VERIFIED=true_unit_tests
