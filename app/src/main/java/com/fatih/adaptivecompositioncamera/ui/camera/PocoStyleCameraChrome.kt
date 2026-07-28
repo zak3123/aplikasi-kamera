@@ -7,9 +7,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -58,19 +61,27 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.hardware.camera2.CameraMetadata
 import com.fatih.adaptivecompositioncamera.domain.model.CameraCapability
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
 import com.fatih.adaptivecompositioncamera.domain.model.FlashMode
 import com.fatih.adaptivecompositioncamera.domain.model.LensRole
+import com.fatih.adaptivecompositioncamera.domain.model.RuntimeCameraInfo
 import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.roundToInt
 
 @Composable
 fun PocoStyleTopControls(
@@ -302,41 +313,14 @@ private fun PocoStabilizationControl(
     active: Boolean,
     rotationDegrees: Float = 0f,
 ) {
-    Column(Modifier.width(CameraUiTokens.secondaryTouchTarget), horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(
-            onClick = onClick,
-            shape = CircleShape,
-            color = Color.Black.copy(alpha = if (active) 0.48f else 0.34f),
-            modifier = Modifier
-                .size(CameraUiTokens.minimumTouchTarget)
-                .then(if (active) Modifier.border(1.5.dp, PocoAccent, CircleShape) else Modifier)
-                .semantics { contentDescription = description },
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    value,
-                    color = if (active) PocoAccent else Color.White,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                    modifier = Modifier.rotate(rotationDegrees),
-                )
-            }
-        }
-        Text(
-            "STAB",
-            color = if (active) PocoAccent else Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            softWrap = false,
-            modifier = Modifier
-                .rotate(rotationDegrees)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.Black.copy(alpha = 0.56f))
-                .padding(horizontal = 5.dp, vertical = 1.dp),
-        )
-    }
+    PocoTopControl(
+        icon = Icons.Rounded.CameraAlt,
+        description = description,
+        label = value.takeUnless { it == "OFF" || it == "N/A" },
+        onClick = onClick,
+        active = active,
+        rotationDegrees = rotationDegrees,
+    )
 }
 
 @Composable
@@ -421,7 +405,7 @@ private fun PocoLandscapeModeSelector(activeMode: CameraMode, availableModes: Li
         val selected = mode == activeMode
         Text(
             text = mode.label(maxResolution),
-            color = if (selected) Color(0xFFAEEA00) else Color.White.copy(alpha = 0.78f),
+            color = if (selected) PocoAccent else Color.White.copy(alpha = 0.78f),
             style = if (selected) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             softWrap = false,
@@ -491,7 +475,7 @@ private fun PocoQuickZoomRow(zoom: Float, minZoom: Float, maxZoom: Float, onZoom
         if (minZoom < 0.95f) add(minZoom)
         add(1f.coerceIn(minZoom, maxZoom))
         if (maxZoom >= 2f) add(2f)
-        if (maxZoom >= 5f) add(5f)
+        if (maxZoom >= 5f && minZoom < 0.95f) add(5f)
         if (none { abs(it - zoom) < 0.08f }) add(zoom)
     }.distinctBy { (it * 10).toInt() }
     Row(horizontalArrangement = Arrangement.spacedBy(CameraUiTokens.lensGap), verticalAlignment = Alignment.CenterVertically) {
@@ -546,6 +530,245 @@ private fun PocoShutterButton(videoMode: Boolean, recording: Boolean, onClick: (
             videoMode -> drawCircle(Color(0xFFFF3B30), radius = size.minDimension * 0.36f)
             else -> drawCircle(Color.White, radius = size.minDimension * 0.38f)
         }
+        }
+    }
+}
+
+@Composable
+fun PocoExposureControl(
+    focusPoint: Offset,
+    exposureIndex: Int,
+    minExposure: Int,
+    maxExposure: Int,
+    exposureStep: Float,
+    onExposure: (Int) -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (maxExposure <= minExposure) return
+    BoxWithConstraints(modifier) {
+        val density = LocalDensity.current
+        val controlWidthPx = with(density) { CameraUiTokens.exposureControlWidth.toPx() }.roundToInt()
+        val controlHeightPx = with(density) { CameraUiTokens.exposureSliderHeight.toPx() }.roundToInt()
+        val ringRadiusPx = with(density) { (CameraUiTokens.focusRingDiameter / 2).toPx() }.roundToInt()
+        val gapPx = with(density) { 18.dp.toPx() }.roundToInt()
+        val viewportWidth = with(density) { maxWidth.toPx() }.roundToInt()
+        val viewportHeight = with(density) { maxHeight.toPx() }.roundToInt()
+        val geometry = exposureControlGeometry(
+            focusPoint = focusPoint,
+            viewportWidth = viewportWidth,
+            viewportHeight = viewportHeight,
+            controlWidthPx = controlWidthPx,
+            controlHeightPx = controlHeightPx,
+            ringRadiusPx = ringRadiusPx,
+            gapPx = gapPx,
+        )
+        val range = (maxExposure - minExposure).coerceAtLeast(1)
+        val normalized = ((exposureIndex.coerceIn(minExposure, maxExposure) - minExposure).toFloat() / range)
+            .coerceIn(0f, 1f)
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(geometry.x, geometry.y) }
+                .size(CameraUiTokens.exposureControlWidth, CameraUiTokens.exposureSliderHeight)
+                .pointerInput(minExposure, maxExposure) {
+                    detectDragGestures(
+                        onDragStart = { position ->
+                            val mapped = maxExposure - ((position.y / controlHeightPx) * range).roundToInt()
+                            onExposure(mapped.coerceIn(minExposure, maxExposure))
+                        },
+                    ) { change, _ ->
+                        change.consume()
+                        val mapped = maxExposure - ((change.position.y / controlHeightPx) * range).roundToInt()
+                        onExposure(mapped.coerceIn(minExposure, maxExposure))
+                    }
+                },
+        ) {
+            Canvas(Modifier.fillMaxSize().clickable(onClick = onReset)) {
+                val centerX = size.width / 2f
+                val top = 30.dp.toPx()
+                val bottom = size.height - 34.dp.toPx()
+                val thumbY = bottom - (bottom - top) * normalized
+                drawLine(
+                    Color.Black.copy(alpha = 0.52f),
+                    Offset(centerX + 1.5.dp.toPx(), top),
+                    Offset(centerX + 1.5.dp.toPx(), bottom),
+                    5.dp.toPx(),
+                    StrokeCap.Round,
+                )
+                drawLine(
+                    Color.White.copy(alpha = 0.72f),
+                    Offset(centerX, top),
+                    Offset(centerX, bottom),
+                    2.2.dp.toPx(),
+                    StrokeCap.Round,
+                )
+                drawCircle(Color.Black.copy(alpha = 0.58f), CameraUiTokens.exposureThumbSize.toPx() / 2f + 3.dp.toPx(), Offset(centerX, thumbY))
+                drawCircle(PocoAccent, CameraUiTokens.exposureThumbSize.toPx() / 2f, Offset(centerX, thumbY))
+                val sunCenter = Offset(centerX, 16.dp.toPx())
+                drawCircle(Color.White, 6.dp.toPx(), sunCenter, style = Stroke(width = 1.8.dp.toPx()))
+                repeat(8) { index ->
+                    val angle = Math.toRadians((index * 45).toDouble())
+                    drawLine(
+                        Color.White,
+                        Offset(
+                            sunCenter.x + kotlin.math.cos(angle).toFloat() * 10.dp.toPx(),
+                            sunCenter.y + kotlin.math.sin(angle).toFloat() * 10.dp.toPx(),
+                        ),
+                        Offset(
+                            sunCenter.x + kotlin.math.cos(angle).toFloat() * 14.dp.toPx(),
+                            sunCenter.y + kotlin.math.sin(angle).toFloat() * 14.dp.toPx(),
+                        ),
+                        1.6.dp.toPx(),
+                        StrokeCap.Round,
+                    )
+                }
+            }
+            Text(
+                exposureEvLabel(exposureIndex, exposureStep),
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = 0.48f))
+                    .padding(horizontal = 7.dp, vertical = 2.dp),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun PocoStyleProControls(
+    runtimeInfo: RuntimeCameraInfo,
+    activeControl: ProControl,
+    detailsVisible: Boolean,
+    iso: Int,
+    exposureNanos: Long,
+    focusDistance: Float,
+    exposureCompensation: Int,
+    manualExposure: Boolean,
+    manualFocus: Boolean,
+    whiteBalanceMode: Int,
+    onControl: (ProControl) -> Unit,
+    onIso: (Int) -> Unit,
+    onExposure: (Long) -> Unit,
+    onFocus: (Float) -> Unit,
+    onExposureCompensation: (Int) -> Unit,
+    onWhiteBalance: (Int) -> Unit,
+    onAuto: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(modifier = modifier, color = Color.Black.copy(alpha = 0.42f), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("PRO", color = PocoAccent, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                Row(
+                    Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ProControl.entries.forEach { control ->
+                        val available = when (control) {
+                            ProControl.Iso, ProControl.Shutter -> runtimeInfo.supportsManualSensor
+                            ProControl.WhiteBalance -> runtimeInfo.availableWhiteBalanceModes.size > 1
+                            ProControl.Focus -> runtimeInfo.minFocusDistance > 0f
+                            ProControl.Exposure -> runtimeInfo.exposureMin != runtimeInfo.exposureMax
+                        }
+                        if (available) {
+                            Column(
+                                Modifier
+                                    .widthIn(min = 54.dp)
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (activeControl == control) Color.White.copy(alpha = 0.14f) else Color.Transparent)
+                                    .clickable { onControl(control) }
+                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                Text(control.shortLabel(), color = Color.White.copy(alpha = 0.64f), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                Text(
+                                    control.valueLabel(iso, exposureNanos, focusDistance, exposureCompensation, manualExposure, manualFocus, whiteBalanceMode),
+                                    color = if (activeControl == control) PocoAccent else Color.White,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
+                        }
+                    }
+                }
+                Surface(
+                    onClick = onAuto,
+                    color = if (!manualExposure && !manualFocus && exposureCompensation == 0 && whiteBalanceMode == CameraMetadata.CONTROL_AWB_MODE_AUTO) {
+                        PocoAccent
+                    } else {
+                        Color.White.copy(alpha = 0.16f)
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                        Text("AUTO", color = if (!manualExposure && !manualFocus && exposureCompensation == 0 && whiteBalanceMode == CameraMetadata.CONTROL_AWB_MODE_AUTO) Color.Black else Color.White)
+                    }
+                }
+            }
+            AnimatedVisibility(detailsVisible, modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 8.dp)) {
+            when (activeControl) {
+                ProControl.Iso -> if (runtimeInfo.isoMax > runtimeInfo.isoMin) {
+                    Slider(
+                        value = iso.coerceIn(runtimeInfo.isoMin, runtimeInfo.isoMax).toFloat(),
+                        onValueChange = { onIso(it.roundToInt()) },
+                        valueRange = runtimeInfo.isoMin.toFloat()..runtimeInfo.isoMax.toFloat(),
+                    )
+                }
+                ProControl.Shutter -> {
+                    val minimum = runtimeInfo.exposureTimeMinNanos.coerceAtLeast(1L)
+                    val maximum = minOf(runtimeInfo.exposureTimeMaxNanos, 250_000_000L).coerceAtLeast(minimum)
+                    if (maximum > minimum) {
+                        val start = ln(minimum.toDouble())
+                        val span = ln(maximum.toDouble()) - start
+                        val normalized = ((ln(exposureNanos.coerceIn(minimum, maximum).toDouble()) - start) / span)
+                            .toFloat().coerceIn(0f, 1f)
+                        Slider(
+                            value = normalized,
+                            onValueChange = { onExposure(exp(start + span * it).toLong()) },
+                            valueRange = 0f..1f,
+                        )
+                    }
+                }
+                ProControl.WhiteBalance -> Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    runtimeInfo.availableWhiteBalanceModes.forEach { mode ->
+                        Surface(
+                            onClick = { onWhiteBalance(mode) },
+                            color = if (whiteBalanceMode == mode) PocoAccent else Color.White.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(10.dp),
+                        ) {
+                            Text(
+                                whiteBalanceLabel(mode),
+                                color = if (whiteBalanceMode == mode) Color.Black else Color.White,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+                ProControl.Focus -> if (runtimeInfo.minFocusDistance > 0f) {
+                    Slider(value = focusDistance.coerceIn(0f, runtimeInfo.minFocusDistance), onValueChange = onFocus, valueRange = 0f..runtimeInfo.minFocusDistance)
+                }
+                ProControl.Exposure -> if (runtimeInfo.exposureMax > runtimeInfo.exposureMin) {
+                    Slider(
+                        value = exposureCompensation.coerceIn(runtimeInfo.exposureMin, runtimeInfo.exposureMax).toFloat(),
+                        onValueChange = { onExposureCompensation(it.roundToInt()) },
+                        valueRange = runtimeInfo.exposureMin.toFloat()..runtimeInfo.exposureMax.toFloat(),
+                    )
+                }
+            }
+            }
         }
     }
 }

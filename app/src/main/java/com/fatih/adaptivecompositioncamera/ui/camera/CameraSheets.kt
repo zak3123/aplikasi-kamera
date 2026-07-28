@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -138,7 +140,7 @@ fun ResolutionSheet(
     onDismiss: () -> Unit,
 ) {
     val groups = listOf(
-        "Maximum available" to resolutions.filter { it.maximumSensorMode || it.highResolution },
+        "Maximum" to resolutions.filter { it.maximumSensorMode || it.highResolution },
         "Recommended" to resolutions.filter { it.recommended && !it.highResolution && !it.maximumSensorMode },
         "Other" to resolutions.filterNot { it.highResolution || it.recommended || it.maximumSensorMode },
     ).filter { it.second.isNotEmpty() }
@@ -149,18 +151,13 @@ fun ResolutionSheet(
     }
     val presets = emptyList<Pair<PhotoQualityPreset, CameraResolution>>()
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
             Text("Photo resolution", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "Only real Android camera outputs are shown.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
-            )
+            Spacer(Modifier.height(10.dp))
             if (unavailableMaximum != null) {
                 Surface(
-                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                    shape = MaterialTheme.shapes.medium,
+                    color = Color.White.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                 ) {
                     Row(
@@ -171,12 +168,11 @@ fun ResolutionSheet(
                         Icon(Icons.Rounded.Info, contentDescription = null)
                         Column {
                             Text(
-                                "${unavailableMaximum.megapixelLabel} sensor mode detected",
+                                "${unavailableMaximum.megapixelLabel} detected",
                                 style = MaterialTheme.typography.titleSmall,
                             )
                             Text(
-                                "${unavailableMaximum.width} x ${unavailableMaximum.height} is reported only in Android's maximum-sensor map. " +
-                                    "It is not shown as selectable until a valid capture session can use it.",
+                                "${unavailableMaximum.width} x ${unavailableMaximum.height} requires a verified max-resolution session.",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
@@ -237,30 +233,20 @@ fun ResolutionSheet(
                             Column(Modifier.weight(1f)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(resolution.megapixelLabel, style = MaterialTheme.typography.titleMedium)
-                                    when {
-                                        resolution.maximumSensorMode || resolution.highResolution -> Badge("Maximum")
-                                        resolution.recommended -> Badge("Recommended")
-                                        resolution.maximum -> Badge("Largest")
-                                    }
                                 }
                                 Text(
-                                    "${resolution.width} x ${resolution.height} - ${resolution.aspectRatioLabel} - ${resolution.format}",
+                                    "${resolution.width} x ${resolution.height} · ${resolution.aspectRatioLabel}${if (resolution.aspectRatioLabel == "1:1") " crop" else ""}",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                if (resolution.maximumSensorMode) {
-                                    Text(
-                                        "Slower capture, larger files",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.tertiary,
-                                    )
-                                } else if (resolution.highResolution) {
-                                    Text(
-                                        "High-resolution capture",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.tertiary,
-                                    )
+                                val status = when {
+                                    resolution.maximumSensorMode || resolution.highResolution -> "Maximum"
+                                    resolution.recommended -> "Recommended"
+                                    resolution.maximum -> "Largest native output"
+                                    resolution.aspectRatioLabel == "1:1" -> "Square crop"
+                                    else -> null
                                 }
+                                if (status != null) Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                             }
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))

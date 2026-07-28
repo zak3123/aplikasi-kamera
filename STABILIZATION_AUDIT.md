@@ -82,3 +82,25 @@ ADB result on 2026-07-28: `adb devices -l` returned no connected devices.
 ## Result
 
 Stabilization metadata verification: unverified.
+# Stabilization Audit Update - 2026-07-28
+
+## UI result
+
+The visible stabilization control was rewritten.
+
+The rejected large OIS/EIS circle and detached `STAB` label were removed from `PocoStyleCameraChrome.kt`.
+
+The stabilization button now uses the same `PocoTopControl` implementation as the other top controls:
+
+- same visible circle size
+- same touch target
+- same restrained selected state
+- short accepted-state label only when relevant
+
+## Engine result
+
+The existing `StabilizationRequestPlan` and `CaptureResult` evidence flow remain connected through `CameraScreen` and `VideoSettingsSheet`.
+
+## Physical verification
+
+No ADB device was connected during this run. OIS/EIS CaptureResult verification must still be recorded on the POCO phone before claiming physical stabilization success.

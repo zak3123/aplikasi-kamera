@@ -368,11 +368,24 @@ object CameraMath {
 
     private fun List<Pair<Int, Int>>.indexOfFirstRecommended(): Int {
         if (isEmpty()) return -1
-        val twelveMp = indexOfFirst {
+        val nativeTwelveMp = indexOfFirst {
             val pixels = it.first.toLong() * it.second.toLong()
-            pixels in 8_000_000L..14_000_000L
+            pixels in 8_000_000L..14_000_000L && it.isNearAspect(4, 3)
         }
-        return if (twelveMp >= 0) twelveMp else lastIndex.coerceAtLeast(0)
+        if (nativeTwelveMp >= 0) return nativeTwelveMp
+        val nativeFourByThree = indexOfFirst { it.isNearAspect(4, 3) }
+        if (nativeFourByThree >= 0) return nativeFourByThree
+        val nonSquareTwelveMp = indexOfFirst {
+            val pixels = it.first.toLong() * it.second.toLong()
+            pixels in 8_000_000L..14_000_000L && !it.isNearAspect(1, 1)
+        }
+        return if (nonSquareTwelveMp >= 0) nonSquareTwelveMp else lastIndex.coerceAtLeast(0)
+    }
+
+    private fun Pair<Int, Int>.isNearAspect(widthRatio: Int, heightRatio: Int): Boolean {
+        val longSide = maxOf(first, second).toFloat()
+        val shortSide = minOf(first, second).coerceAtLeast(1).toFloat()
+        return abs(longSide / shortSide - widthRatio.toFloat() / heightRatio.toFloat()) <= 0.06f
     }
 
     private fun Int.evenDimension(maximum: Int): Int = coerceIn(2, maximum).let { if (it % 2 == 0) it else it - 1 }

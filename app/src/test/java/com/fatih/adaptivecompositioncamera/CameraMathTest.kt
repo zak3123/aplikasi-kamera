@@ -39,6 +39,8 @@ import com.fatih.adaptivecompositioncamera.ui.camera.stabilizationAcceptedShortL
 import com.fatih.adaptivecompositioncamera.composition.goldenSpiralGuideViewport
 import com.fatih.adaptivecompositioncamera.composition.perspectiveEdgePoints
 import com.fatih.adaptivecompositioncamera.domain.model.PhysicalCameraSummary
+import java.nio.file.Files
+import java.nio.file.Paths
 import kotlin.math.cos
 import kotlin.math.sin
 import org.junit.Assert.assertEquals
@@ -406,13 +408,46 @@ class CameraMathTest {
     @Test
     fun stockCameraChromeStaysWithinCompactPhoneGuidance() {
         val landscape = cameraUiLayoutPolicy(AdaptiveLayout.PhoneLandscape)
-        assertEquals(190f, landscape.captureRailWidth.value, 0f)
+        assertEquals(168f, landscape.captureRailWidth.value, 0f)
         assertTrue(landscape.captureRailWidth.value <= 800f * 0.25f)
         assertTrue(CameraUiTokens.minimumTouchTarget.value >= 52f)
-        assertTrue(CameraUiTokens.topVisualSize.value in 42f..46f)
-        assertTrue(CameraUiTokens.secondaryControlSize.value in 54f..60f)
-        assertTrue(CameraUiTokens.shutterOuterSize.value in 88f..96f)
-        assertTrue(CameraUiTokens.shutterTouchTarget.value >= 100f)
+        assertTrue(CameraUiTokens.topVisualSize.value in 40f..44f)
+        assertEquals(CameraUiTokens.topVisualSize, CameraUiTokens.standardPhone.topVisualSize)
+        assertTrue(CameraUiTokens.secondaryControlSize.value in 50f..56f)
+        assertTrue(CameraUiTokens.shutterOuterSize.value in 86f..92f)
+        assertTrue(CameraUiTokens.shutterTouchTarget.value >= 98f)
+    }
+
+    @Test
+    fun legacyCameraUiNamesAreRemovedFromProductionSource() {
+        val cameraScreen = listOf(
+            Paths.get("app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraScreen.kt"),
+            Paths.get("src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraScreen.kt"),
+        ).first { Files.exists(it) }
+        val source = String(Files.readAllBytes(cameraScreen))
+        listOf(
+            "CameraTopBar",
+            "CameraBottomControls",
+            "TopControl",
+            "ModeCarousel",
+            "CameraModeLabel",
+            "LensSelector",
+            "CompactLensSelector",
+            "QuickZoomRow",
+            "ProControlPanel",
+            "QuickSettingsPanel",
+            "StockExposureControl",
+            "RemovedLegacy",
+        ).forEach { forbidden ->
+            assertFalse(
+                "Forbidden legacy UI symbol remains: $forbidden",
+                Regex("\\b${Regex.escape(forbidden)}\\b").containsMatchIn(source),
+            )
+        }
+        assertTrue(source.contains("PocoStyleTopControls"))
+        assertTrue(source.contains("PocoStyleShutterControls"))
+        assertTrue(source.contains("PocoStyleProControls"))
+        assertTrue(source.contains("PocoExposureControl"))
     }
 
     @Test
@@ -474,6 +509,36 @@ class CameraMathTest {
         assertFalse(CameraMode.MaximumResolution in CameraConfigurationResolver().availableModes(binnedOnly))
         assertEquals(48.0, exposed.displayMaximumResolution?.megapixels ?: 0.0, 0.0)
         assertEquals(12.0, binnedOnly.displayMaximumResolution?.megapixels ?: 0.0, 0.0)
+    }
+
+    @Test
+    fun ultraHdResolverNeverFallsBackToSmallRecommendedOutput() {
+        val lowRecommended = resolution(1920, 1440, recommended = true)
+        val maximum = resolution(4624, 3472).copy(highResolution = true)
+        val capability = fakeCapability(jpeg = listOf(lowRecommended), highResolutionJpeg = listOf(maximum))
+        val resolved = ModeConflictResolver().resolve(
+            CameraConfiguration(
+                lensFacing = LensFacing.Rear,
+                cameraId = "0",
+                mode = CameraMode.MaximumResolution,
+                resolution = lowRecommended,
+            ),
+            capability,
+        )
+        assertEquals(CameraMode.MaximumResolution, resolved.mode)
+        assertEquals(4624, resolved.resolution?.width)
+        assertTrue((resolved.resolution?.megapixels ?: 0.0) > 15.0)
+    }
+
+    @Test
+    fun recommendationPrefersNativeFourByThreeOverSquareCrop() {
+        val sorted = CameraMath.sortResolutionDimensions(
+            listOf(4624 to 3472, 3472 to 3472, 3840 to 2160, 1920 to 1440),
+            "JPEG",
+        )
+        val recommended = sorted.single { it.recommended }
+        assertEquals("4:3", recommended.aspectRatioLabel)
+        assertFalse(recommended.width == recommended.height)
     }
 
     @Test

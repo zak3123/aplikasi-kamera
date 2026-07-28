@@ -352,3 +352,77 @@ shutdown.exe /s /f /t 180 /c "Adaptive Composition Camera rewrite completed. Win
 ```
 
 Shutdown was not scheduled because acceptance is incomplete: no ADB device was connected for mandatory visual/capture/stabilization verification, and the complete automatic document scanner workflow is not implemented.
+# 2026-07-28 UI Legacy Removal Rewrite
+
+## Summary
+
+The rejected mixed camera UI was structurally reduced. The legacy camera chrome definitions were removed from `CameraScreen.kt`, and live controls now route through the POCO-style component family.
+
+## Development validation
+
+Passed during development:
+
+- `:app:compileDebugKotlin`
+- `:app:testDebugUnitTest --tests com.fatih.adaptivecompositioncamera.CameraMathTest`
+
+Full final validation is pending for this iteration.
+
+## Physical-device state
+
+ADB physical-device screenshots, stabilization CaptureResult evidence, and actual maximum-resolution JPEG dimensions remain unavailable until a device is visible through `adb devices`.
+
+# 2026-07-28 v0.8.4 Final Validation
+
+## Project directory
+
+`D:\aplikasi-kamera`
+
+## Final APK
+
+`D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.8.4-poco-authoritative-ui-debug.apk`
+
+- APK size: 25,191,969 bytes
+- SHA-256: `E03E5242E22249EAE4D49960342D3E10744A351B4A416B158FA9860C9B774B65`
+
+## Validation
+
+- Build: SUCCESS (`:app:assembleDebug`)
+- Unit tests: SUCCESS (`:app:test`)
+- Lint: SUCCESS (`:app:lint`)
+
+## Static APK check
+
+The final APK was searched for rejected legacy UI symbol strings:
+
+- `CameraTopBar`
+- `CameraBottomControls`
+- `TopControl`
+- `ModeCarousel`
+- `CameraModeLabel`
+- `LensSelector`
+- `CompactLensSelector`
+- `QuickZoomRow`
+- `ProControlPanel`
+- `QuickSettingsPanel`
+- `StockExposureControl`
+- `RemovedLegacy`
+
+Result: none found.
+
+## Device verification
+
+`adb devices -l` returned no connected devices.
+
+Therefore these remain unverified:
+
+- portrait screenshot
+- landscape-left screenshot
+- landscape-right screenshot
+- OIS CaptureResult metadata
+- EIS CaptureResult metadata
+- genuine exposed 48 MP mode
+- genuine captured 48 MP JPEG dimensions
+
+## Shutdown
+
+Shutdown was not scheduled because physical-device verification and capture evidence were unavailable.
