@@ -136,6 +136,50 @@ data class CameraUiLayoutPolicy(
     val controlsMaximumWidth: Dp,
 )
 
+enum class CameraTopControlSlot {
+    Flash,
+    QuickSettings,
+    Timer,
+    AspectRatio,
+    Resolution,
+    Stabilization,
+    Composition,
+    Settings,
+}
+
+fun topControlCapacity(
+    availableWidthDp: Float,
+    controlWidthDp: Float = CameraUiTokens.minimumTouchTarget.value,
+    gapDp: Float = CameraUiTokens.topGap.value,
+    horizontalSafeMarginDp: Float = CameraUiTokens.topEdgeMargin.value,
+): Int {
+    val usable = (availableWidthDp - horizontalSafeMarginDp * 2f).coerceAtLeast(controlWidthDp)
+    return (((usable + gapDp) / (controlWidthDp + gapDp)).toInt()).coerceAtLeast(1)
+}
+
+fun visibleTopControlSlots(
+    availableWidthDp: Float,
+    hasFlash: Boolean,
+    captureFormatControlsVisible: Boolean,
+    hasStabilization: Boolean,
+    compositionVisible: Boolean,
+): Set<CameraTopControlSlot> {
+    val ordered = buildList {
+        if (hasFlash) add(CameraTopControlSlot.Flash)
+        add(CameraTopControlSlot.QuickSettings)
+        add(CameraTopControlSlot.Timer)
+        if (captureFormatControlsVisible) {
+            add(CameraTopControlSlot.AspectRatio)
+            add(CameraTopControlSlot.Resolution)
+        }
+        if (hasStabilization) add(CameraTopControlSlot.Stabilization)
+        if (compositionVisible) add(CameraTopControlSlot.Composition)
+        add(CameraTopControlSlot.Settings)
+    }
+    val capacity = topControlCapacity(availableWidthDp).coerceAtMost(ordered.size)
+    return ordered.take(capacity).toSet()
+}
+
 fun cameraUiLayoutPolicy(layout: AdaptiveLayout): CameraUiLayoutPolicy = when (layout) {
     AdaptiveLayout.PhonePortrait -> CameraUiLayoutPolicy(
         landscape = false,
@@ -152,13 +196,13 @@ fun cameraUiLayoutPolicy(layout: AdaptiveLayout): CameraUiLayoutPolicy = when (l
     AdaptiveLayout.PhoneLandscape -> CameraUiLayoutPolicy(
         landscape = true,
         tablet = false,
-        captureRailWidth = CameraUiTokens.landscapeCaptureRailWidth + CameraUiTokens.landscapeModeRailWidth,
-        controlsMaximumWidth = CameraUiTokens.landscapeCaptureRailWidth + CameraUiTokens.landscapeModeRailWidth,
+        captureRailWidth = CameraUiTokens.landscapeCaptureRailWidth,
+        controlsMaximumWidth = CameraUiTokens.landscapeCaptureRailWidth,
     )
     AdaptiveLayout.TabletLandscape -> CameraUiLayoutPolicy(
         landscape = true,
         tablet = true,
-        captureRailWidth = CameraUiTokens.landscapeCaptureRailWidth + CameraUiTokens.landscapeModeRailWidth,
-        controlsMaximumWidth = CameraUiTokens.landscapeCaptureRailWidth + CameraUiTokens.landscapeModeRailWidth,
+        captureRailWidth = CameraUiTokens.landscapeCaptureRailWidth,
+        controlsMaximumWidth = CameraUiTokens.landscapeCaptureRailWidth,
     )
 }

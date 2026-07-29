@@ -38,3 +38,20 @@ Selected state uses a thin accent ring and restrained POCO-like tint rather than
 
 ADB did not expose a connected device during this run, so portrait/landscape screenshots and on-device recording comparison remain unavailable.
 
+## 2026-07-29 update
+
+The rejected screenshot showed the last top control clipped at the right edge. The top row no longer scrolls or clips. It now computes how many controls fit in the safe width and renders only those slots by priority:
+
+1. Flash
+2. Quick settings
+3. Timer
+4. Aspect ratio
+5. Resolution/video quality
+6. Stabilization
+7. Composition
+8. Settings
+
+Overflow controls remain reachable through Quick Settings.
+
+Landscape no longer renders a separate vertical Photo/Video/More rail beside the shutter. It uses a compact active-mode chip in the capture rail instead.
+

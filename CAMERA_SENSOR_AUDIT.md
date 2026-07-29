@@ -53,3 +53,10 @@ Because no device was attached, this audit does not contain device-specific came
 - Capture normal Photo and High Resolution where offered.
 - Read actual JPEG bounds and EXIF orientation.
 - Update `CAMERA_48MP_AUDIT.md` and `CAPTURE_OUTPUT_AUDIT.md` with device-specific evidence.
+# 2026-07-29 Capability JSON Export Update
+
+Camera2 capability discovery now writes a machine-readable report to app-specific external files:
+
+`/sdcard/Android/data/<package>/files/camera_capabilities.json`
+
+This file is generated from the public Android camera API scan and includes openable logical cameras plus physical child summaries where exposed. It can be pulled with ADB during physical-device verification.

@@ -426,3 +426,51 @@ Therefore these remain unverified:
 ## Shutdown
 
 Shutdown was not scheduled because physical-device verification and capture evidence were unavailable.
+
+# 2026-07-29 v0.8.5 Reference-Based Overflow Fix
+
+## Project directory
+
+`D:\aplikasi-kamera`
+
+## Reference repositories
+
+Reference repositories were cloned under `D:\CameraReferenceRepos` and inspected. See `REFERENCE_IMPLEMENTATION_AUDIT.md`.
+
+## Final APK
+
+`D:\aplikasi-kamera\APK\AdaptiveCompositionCamera-v0.8.5-reference-overflow-camera-audit-debug.apk`
+
+- APK size: 25,192,583 bytes
+- SHA-256: `8704DBED189DB92F402B7E8609EAB3E2E471475452BC2534123554EA4A15A818`
+
+## Changes
+
+- Added width-aware top-control capacity calculation.
+- Top controls no longer use horizontal scrolling that can clip the rightmost button.
+- Overflow controls move into Quick Settings by priority.
+- Removed the separate landscape mode rail that rendered Photo/Video/More as a vertical side list.
+- Added device-side `camera_capabilities.json` export during Camera2 capability scans.
+
+## Validation
+
+- Build: SUCCESS (`:app:assembleDebug`)
+- Unit tests: SUCCESS (`:app:test`)
+- Lint: SUCCESS (`:app:lint`)
+
+## Device verification
+
+`adb devices -l` returned no connected devices.
+
+Still unverified:
+
+- portrait screenshot
+- landscape-left screenshot
+- landscape-right screenshot
+- OIS/EIS CaptureResult metadata
+- genuine exposed 48 MP mode
+- genuine captured 48 MP JPEG dimensions
+
+## Shutdown
+
+Shutdown was not scheduled because physical-device verification remains unavailable.

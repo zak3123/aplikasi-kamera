@@ -82,6 +82,7 @@ class AndroidCameraCapabilityRepository(
             cameras = cameras,
         ).also { report ->
             _capabilityReport.value = report
+            CameraEvidenceLogger.writeCapabilityReport(context, report)
             CameraEvidenceLogger.record(
                 context,
                 "CAMERA2",

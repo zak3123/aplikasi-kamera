@@ -3,10 +3,13 @@ package com.fatih.adaptivecompositioncamera.camera
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import com.fatih.adaptivecompositioncamera.domain.model.CapabilityReport
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /**
  * Device-side evidence used by the diagnostics screen and ADB verification.
@@ -18,13 +21,24 @@ import java.util.Locale
 internal object CameraEvidenceLogger {
     const val LOGCAT_TAG = "AdaptiveCameraEvidence"
     private const val FILE_NAME = "camera-evidence.log"
+    private const val CAPABILITY_JSON_FILE_NAME = "camera_capabilities.json"
     private const val MAX_FILE_BYTES = 1_500_000L
     private val lock = Any()
     private val timestampFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ", Locale.US)
+    private val json = Json {
+        prettyPrint = true
+        encodeDefaults = true
+        explicitNulls = false
+    }
 
     fun file(context: Context): File {
         val directory = context.getExternalFilesDir(null) ?: context.filesDir
         return File(directory, FILE_NAME)
+    }
+
+    fun capabilityJsonFile(context: Context): File {
+        val directory = context.getExternalFilesDir(null) ?: context.filesDir
+        return File(directory, CAPABILITY_JSON_FILE_NAME)
     }
 
     fun startCapabilityScan(context: Context) {
@@ -59,5 +73,14 @@ internal object CameraEvidenceLogger {
             }
             destination.appendText("$line\n")
         }
+    }
+
+    fun writeCapabilityReport(context: Context, report: CapabilityReport) {
+        synchronized(lock) {
+            val destination = capabilityJsonFile(context)
+            destination.parentFile?.mkdirs()
+            destination.writeText(json.encodeToString(report))
+        }
+        record(context, "CAMERA2_CAPABILITY_JSON", "path=${capabilityJsonFile(context).absolutePath} cameras=${report.cameras.size}")
     }
 }

@@ -28,6 +28,7 @@ import com.fatih.adaptivecompositioncamera.utility.CameraMath
 import com.fatih.adaptivecompositioncamera.utility.FloatPoint
 import com.fatih.adaptivecompositioncamera.ui.camera.professionalGuideCatalog
 import com.fatih.adaptivecompositioncamera.ui.camera.CameraUiTokens
+import com.fatih.adaptivecompositioncamera.ui.camera.CameraTopControlSlot
 import com.fatih.adaptivecompositioncamera.ui.camera.cameraUiLayoutPolicy
 import com.fatih.adaptivecompositioncamera.ui.camera.documentAnalysisResolutionKey
 import com.fatih.adaptivecompositioncamera.ui.camera.exposureControlGeometry
@@ -36,6 +37,8 @@ import com.fatih.adaptivecompositioncamera.ui.camera.friendlyTopMegapixelLabel
 import com.fatih.adaptivecompositioncamera.ui.camera.modeResolutionKey
 import com.fatih.adaptivecompositioncamera.ui.camera.label
 import com.fatih.adaptivecompositioncamera.ui.camera.stabilizationAcceptedShortLabel
+import com.fatih.adaptivecompositioncamera.ui.camera.topControlCapacity
+import com.fatih.adaptivecompositioncamera.ui.camera.visibleTopControlSlots
 import com.fatih.adaptivecompositioncamera.composition.goldenSpiralGuideViewport
 import com.fatih.adaptivecompositioncamera.composition.perspectiveEdgePoints
 import com.fatih.adaptivecompositioncamera.domain.model.PhysicalCameraSummary
@@ -408,7 +411,7 @@ class CameraMathTest {
     @Test
     fun stockCameraChromeStaysWithinCompactPhoneGuidance() {
         val landscape = cameraUiLayoutPolicy(AdaptiveLayout.PhoneLandscape)
-        assertEquals(168f, landscape.captureRailWidth.value, 0f)
+        assertEquals(104f, landscape.captureRailWidth.value, 0f)
         assertTrue(landscape.captureRailWidth.value <= 800f * 0.25f)
         assertTrue(CameraUiTokens.minimumTouchTarget.value >= 52f)
         assertTrue(CameraUiTokens.topVisualSize.value in 40f..44f)
@@ -416,6 +419,33 @@ class CameraMathTest {
         assertTrue(CameraUiTokens.secondaryControlSize.value in 50f..56f)
         assertTrue(CameraUiTokens.shutterOuterSize.value in 86f..92f)
         assertTrue(CameraUiTokens.shutterTouchTarget.value >= 98f)
+    }
+
+    @Test
+    fun topControlsOverflowToQuickSettingsInsteadOfClipping() {
+        val compact = visibleTopControlSlots(
+            availableWidthDp = 320f,
+            hasFlash = true,
+            captureFormatControlsVisible = true,
+            hasStabilization = true,
+            compositionVisible = true,
+        )
+        assertEquals(topControlCapacity(320f), compact.size)
+        assertTrue(CameraTopControlSlot.Flash in compact)
+        assertTrue(CameraTopControlSlot.QuickSettings in compact)
+        assertTrue(CameraTopControlSlot.Timer in compact)
+        assertFalse(CameraTopControlSlot.Stabilization in compact)
+        assertFalse(CameraTopControlSlot.Settings in compact)
+
+        val wide = visibleTopControlSlots(
+            availableWidthDp = 620f,
+            hasFlash = true,
+            captureFormatControlsVisible = true,
+            hasStabilization = true,
+            compositionVisible = true,
+        )
+        assertTrue(CameraTopControlSlot.Stabilization in wide)
+        assertTrue(CameraTopControlSlot.Settings in wide)
     }
 
     @Test

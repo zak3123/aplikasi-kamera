@@ -106,57 +106,77 @@ fun PocoStyleTopControls(
     controlRotationDegrees: Float,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier.horizontalScroll(rememberScrollState()),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(CameraUiTokens.topGap),
-    ) {
-        if (hasFlash) {
-            PocoTopControl(
-                icon = when (flashMode) {
-                    FlashMode.Off -> Icons.Rounded.FlashOff
-                    FlashMode.Auto -> Icons.Rounded.FlashAuto
-                    FlashMode.On, FlashMode.Torch -> Icons.Rounded.FlashOn
-                },
-                description = "Flash ${flashMode.name}",
-                label = flashMode.takeUnless { it == FlashMode.Off }?.name,
-                onClick = onFlash,
-                rotationDegrees = controlRotationDegrees,
-            )
-        }
-        PocoTopControl(
-            icon = if (quickSettingsExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-            description = "Quick camera controls",
-            label = null,
-            onClick = onQuickSettings,
-            active = quickSettingsExpanded,
-            rotationDegrees = controlRotationDegrees,
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val visibleSlots = visibleTopControlSlots(
+            availableWidthDp = maxWidth.value,
+            hasFlash = hasFlash,
+            captureFormatControlsVisible = captureFormatControlsVisible,
+            hasStabilization = stabilizationLabel != null,
+            compositionVisible = compositionVisible,
         )
-        PocoTopControl(Icons.Rounded.Timer, "Self timer", if (timerSeconds == 0) null else "${timerSeconds}s", onTimer, rotationDegrees = controlRotationDegrees)
-        if (captureFormatControlsVisible) {
-            PocoTopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio, rotationDegrees = controlRotationDegrees)
-            PocoTopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution, rotationDegrees = controlRotationDegrees)
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .widthIn(max = maxWidth)
+                .padding(horizontal = CameraUiTokens.topEdgeMargin),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(CameraUiTokens.topGap, Alignment.CenterHorizontally),
+        ) {
+            if (CameraTopControlSlot.Flash in visibleSlots) {
+                PocoTopControl(
+                    icon = when (flashMode) {
+                        FlashMode.Off -> Icons.Rounded.FlashOff
+                        FlashMode.Auto -> Icons.Rounded.FlashAuto
+                        FlashMode.On, FlashMode.Torch -> Icons.Rounded.FlashOn
+                    },
+                    description = "Flash ${flashMode.name}",
+                    label = flashMode.takeUnless { it == FlashMode.Off }?.name,
+                    onClick = onFlash,
+                    rotationDegrees = controlRotationDegrees,
+                )
+            }
+            if (CameraTopControlSlot.QuickSettings in visibleSlots) {
+                PocoTopControl(
+                    icon = if (quickSettingsExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    description = "Quick camera controls",
+                    label = null,
+                    onClick = onQuickSettings,
+                    active = quickSettingsExpanded,
+                    rotationDegrees = controlRotationDegrees,
+                )
+            }
+            if (CameraTopControlSlot.Timer in visibleSlots) {
+                PocoTopControl(Icons.Rounded.Timer, "Self timer", if (timerSeconds == 0) null else "${timerSeconds}s", onTimer, rotationDegrees = controlRotationDegrees)
+            }
+            if (CameraTopControlSlot.AspectRatio in visibleSlots) {
+                PocoTopControl(Icons.Rounded.AspectRatio, "Aspect ratio", aspectRatioLabel, onAspectRatio, rotationDegrees = controlRotationDegrees)
+            }
+            if (CameraTopControlSlot.Resolution in visibleSlots) {
+                PocoTopControl(Icons.Rounded.PhotoSizeSelectLarge, "Capture resolution", resolutionLabel, onResolution, rotationDegrees = controlRotationDegrees)
+            }
+            if (CameraTopControlSlot.Stabilization in visibleSlots && stabilizationLabel != null) {
+                PocoStabilizationControl(
+                    value = stabilizationLabel,
+                    description = "Stabilization selector. Current result $stabilizationLabel",
+                    onClick = onStabilization,
+                    active = stabilizationLabel !in setOf("OFF", "N/A", "WAIT"),
+                    rotationDegrees = controlRotationDegrees,
+                )
+            }
+            if (CameraTopControlSlot.Composition in visibleSlots) {
+                PocoTopControl(
+                    icon = Icons.Rounded.GridOn,
+                    description = "Composition guides",
+                    label = null,
+                    onClick = onComposition,
+                    active = compositionActive,
+                    rotationDegrees = controlRotationDegrees,
+                )
+            }
+            if (CameraTopControlSlot.Settings in visibleSlots) {
+                PocoTopControl(Icons.Rounded.Settings, "Settings", null, onSettings, rotationDegrees = controlRotationDegrees)
+            }
         }
-        if (stabilizationLabel != null) {
-            PocoStabilizationControl(
-                value = stabilizationLabel,
-                description = "Stabilization selector. Current result $stabilizationLabel",
-                onClick = onStabilization,
-                active = stabilizationLabel !in setOf("OFF", "N/A", "WAIT"),
-                rotationDegrees = controlRotationDegrees,
-            )
-        }
-        if (compositionVisible) {
-            PocoTopControl(
-                icon = Icons.Rounded.GridOn,
-                description = "Composition guides",
-                label = null,
-                onClick = onComposition,
-                active = compositionActive,
-                rotationDegrees = controlRotationDegrees,
-            )
-        }
-        PocoTopControl(Icons.Rounded.Settings, "Settings", null, onSettings, rotationDegrees = controlRotationDegrees)
     }
 }
 
@@ -239,17 +259,11 @@ fun PocoStyleShutterControls(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(
-                Modifier.width(CameraUiTokens.landscapeModeRailWidth).fillMaxHeight(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                PocoLandscapeModeSelector(activeMode, availableModes, maxResolution, onMode, onMore, controlRotationDegrees)
-            }
-            Column(
                 Modifier.width(CameraUiTokens.landscapeCaptureRailWidth).fillMaxHeight(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceEvenly,
             ) {
+                PocoLandscapeActiveModeChip(activeMode, maxResolution, onMore, controlRotationDegrees)
                 if (availableCameras.size > 1) {
                     PocoCompactLensSelector(availableCameras, activeCameraId, onCamera, controlRotationDegrees)
                 } else if (maxZoom > minZoom + 0.05f) {
@@ -398,21 +412,31 @@ private fun PocoStyleModeSelector(activeMode: CameraMode, availableModes: List<C
 }
 
 @Composable
-private fun PocoLandscapeModeSelector(activeMode: CameraMode, availableModes: List<CameraMode>, maxResolution: CameraResolution?, onMode: (CameraMode) -> Unit, onMore: () -> Unit, rotationDegrees: Float) {
-    val modes = listOf(CameraMode.Photo, CameraMode.Video).filter { it in availableModes }
-    val visibleModes = if (activeMode in modes) modes else modes + activeMode
-    visibleModes.forEach { mode ->
-        val selected = mode == activeMode
-        Text(
-            text = mode.label(maxResolution),
-            color = if (selected) PocoAccent else Color.White.copy(alpha = 0.78f),
-            style = if (selected) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            softWrap = false,
-            modifier = Modifier.rotate(rotationDegrees).heightIn(min = CameraUiTokens.minimumTouchTarget).clickable { onMode(mode) }.padding(horizontal = 4.dp, vertical = 12.dp),
-        )
+private fun PocoLandscapeActiveModeChip(
+    activeMode: CameraMode,
+    maxResolution: CameraResolution?,
+    onMore: () -> Unit,
+    rotationDegrees: Float,
+) {
+    Surface(
+        onClick = onMore,
+        color = Color.Black.copy(alpha = 0.40f),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Column(
+            Modifier.padding(horizontal = 10.dp, vertical = 7.dp).rotate(rotationDegrees),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                activeMode.label(maxResolution),
+                color = PocoAccent,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                softWrap = false,
+            )
+            Box(Modifier.width(22.dp).height(2.dp).clip(CircleShape).background(PocoAccent))
+        }
     }
-    Text("More", color = Color.White.copy(alpha = 0.78f), maxLines = 1, softWrap = false, modifier = Modifier.rotate(rotationDegrees).heightIn(min = CameraUiTokens.minimumTouchTarget).clickable(onClick = onMore).padding(horizontal = 4.dp, vertical = 12.dp))
 }
 
 @Composable
