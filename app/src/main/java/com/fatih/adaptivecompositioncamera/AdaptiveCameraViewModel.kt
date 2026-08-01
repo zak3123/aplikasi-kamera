@@ -9,6 +9,7 @@ import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraDiagnostics
 import com.fatih.adaptivecompositioncamera.domain.model.CapabilityReport
 import com.fatih.adaptivecompositioncamera.domain.model.CompositionGuide
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
 import com.fatih.adaptivecompositioncamera.settings.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -63,6 +64,14 @@ class AdaptiveCameraViewModel(application: Application) : AndroidViewModel(appli
 
     fun setSelectedResolution(cameraId: String, resolutionId: String) = viewModelScope.launch {
         settingsRepository.setSelectedResolution(cameraId, resolutionId)
+    }
+
+    fun setPhotoAspectRatio(aspectRatio: PhotoAspectRatio) = viewModelScope.launch {
+        settingsRepository.setPhotoAspectRatio(aspectRatio)
+    }
+
+    fun setMatchPreviewCrop(enabled: Boolean) = viewModelScope.launch {
+        settingsRepository.setMatchPreviewCrop(enabled)
     }
 
     fun setMirrorPreview(enabled: Boolean) = viewModelScope.launch {

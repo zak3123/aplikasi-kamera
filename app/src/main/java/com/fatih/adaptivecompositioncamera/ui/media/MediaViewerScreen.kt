@@ -20,15 +20,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.fatih.adaptivecompositioncamera.domain.model.MediaItem
 import com.fatih.adaptivecompositioncamera.media.AndroidMediaRepository
+import com.fatih.adaptivecompositioncamera.utility.CameraMath
 import kotlinx.coroutines.launch
 
 @Composable
@@ -128,7 +129,7 @@ fun MediaViewerScreen(
             color = Color.Black.copy(alpha = 0.58f),
         ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back", tint = Color.White) }
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
                 Text(item.displayName, color = Color.White, maxLines = 1, modifier = Modifier.weight(1f))
                 IconButton(onClick = { showInfo = true }) { Icon(Icons.Rounded.Info, "Media information", tint = Color.White) }
             }
@@ -153,13 +154,13 @@ fun MediaViewerScreen(
                             videoPlaying = view.isPlaying
                         }
                     }
-                    ViewerAction(if (muted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp, if (muted) "Unmute" else "Mute") {
+                    ViewerAction(if (muted) Icons.AutoMirrored.Rounded.VolumeOff else Icons.AutoMirrored.Rounded.VolumeUp, if (muted) "Unmute" else "Mute") {
                         muted = !muted
                         videoPlayer?.setVolume(if (muted) 0f else 1f, if (muted) 0f else 1f)
                     }
                 }
                 ViewerAction(Icons.Rounded.Share, "Share") { shareMedia(context, item) }
-                ViewerAction(Icons.Rounded.OpenInNew, "Open externally") { openExternally(context, item) }
+                ViewerAction(Icons.AutoMirrored.Rounded.OpenInNew, "Open externally") { openExternally(context, item) }
                 ViewerAction(Icons.Rounded.Delete, "Delete") { showDelete = true }
             }
         }
@@ -190,7 +191,15 @@ fun MediaViewerScreen(
                 Column(Modifier.widthIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(item.displayName)
                     Text("Type: ${item.mimeType}")
-                    if (item.width > 0 && item.height > 0) Text("Dimensions: ${item.width} x ${item.height}")
+                    if (item.width > 0 && item.height > 0) {
+                        Text("Dimensions: ${item.width} x ${item.height}")
+                        Text("Actual output: ${CameraMath.megapixels(item.width, item.height)} MP")
+                        Text("Aspect ratio: ${CameraMath.aspectRatioLabel(item.width, item.height)}")
+                    }
+                    if (item.rotationDegrees != 0) Text("EXIF rotation: ${item.rotationDegrees}°")
+                    item.cameraId?.let { Text("Camera ID: $it") }
+                    item.requestedResolution?.let { Text("Requested native resolution: $it") }
+                    item.boundResolution?.let { Text("Bound capture resolution: $it") }
                     if (item.durationMillis > 0) Text("Duration: ${formatDuration(item.durationMillis)}")
                     if (item.sizeBytes > 0) Text("Size: ${formatBytes(item.sizeBytes)}")
                     Text("Location: DCIM/AdaptiveCompositionCamera")

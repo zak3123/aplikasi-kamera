@@ -17,6 +17,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.fatih.adaptivecompositioncamera.ui.AdaptiveCameraApp
 import com.fatih.adaptivecompositioncamera.ui.theme.AdaptiveCompositionCameraTheme
 
@@ -74,9 +77,23 @@ class MainActivity : ComponentActivity() {
                     requestAudioPermission = { audioPermission.launch(Manifest.permission.RECORD_AUDIO) },
                     requestLegacyStoragePermission = { legacyStoragePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE) },
                     volumeShutterEvent = volumeShutterEvent,
-                    onCameraScreenActive = { cameraScreenActive = it },
+                    onCameraScreenState = { active, volumeShutterEnabled ->
+                        cameraScreenActive = active && volumeShutterEnabled
+                        updateSystemBars(active)
+                    },
                 )
             }
+        }
+    }
+
+    private fun updateSystemBars(cameraActive: Boolean) {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (cameraActive) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 }

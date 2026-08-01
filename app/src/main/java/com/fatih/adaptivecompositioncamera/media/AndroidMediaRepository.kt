@@ -100,7 +100,7 @@ class AndroidMediaRepository : MediaRepository {
                     height = cursor.int(MediaStore.MediaColumns.HEIGHT),
                     sizeBytes = cursor.long(MediaStore.MediaColumns.SIZE),
                     durationMillis = if (fallbackMime.startsWith("video")) videoDuration(context, ContentUris.withAppendedId(collection, id)) else 0L,
-                )
+                ).withVerifiedImageMetadata(context)
             }
         }.getOrNull()
     }
@@ -127,7 +127,7 @@ class AndroidMediaRepository : MediaRepository {
                     height = cursor.int(MediaStore.MediaColumns.HEIGHT),
                     sizeBytes = cursor.long(MediaStore.MediaColumns.SIZE),
                     durationMillis = if (mime.startsWith("video")) videoDuration(context, uri) else 0L,
-                )
+                ).withVerifiedImageMetadata(context)
             }
         }.getOrNull()
     }
@@ -141,6 +141,38 @@ class AndroidMediaRepository : MediaRepository {
             null,
         )?.use { cursor -> if (cursor.moveToFirst()) cursor.long(MediaStore.Video.Media.DURATION) else 0L } ?: 0L
     }.getOrDefault(0L)
+
+    private fun MediaItem.withVerifiedImageMetadata(context: Context): MediaItem {
+        if (!mimeType.startsWith("image/")) return this
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, bounds)
+            }
+        }
+        val orientation = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                ExifInterface(input).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL,
+                )
+            } ?: ExifInterface.ORIENTATION_NORMAL
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        val rotation = when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90,
+            ExifInterface.ORIENTATION_TRANSPOSE -> 90
+            ExifInterface.ORIENTATION_ROTATE_180,
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> 180
+            ExifInterface.ORIENTATION_ROTATE_270,
+            ExifInterface.ORIENTATION_TRANSVERSE -> 270
+            else -> 0
+        }
+        return copy(
+            width = bounds.outWidth.takeIf { it > 0 } ?: width,
+            height = bounds.outHeight.takeIf { it > 0 } ?: height,
+            rotationDegrees = rotation,
+        )
+    }
 
     private fun decodeSampled(context: Context, uri: Uri, maxWidth: Int, maxHeight: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

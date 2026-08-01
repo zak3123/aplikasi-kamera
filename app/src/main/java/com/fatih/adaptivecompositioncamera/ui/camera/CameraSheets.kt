@@ -3,6 +3,7 @@
 package com.fatih.adaptivecompositioncamera.ui.camera
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -11,19 +12,28 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.DocumentScanner
+import androidx.compose.material.icons.rounded.HighQuality
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -41,7 +51,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.fatih.adaptivecompositioncamera.composition.CompositionGuideOverlay
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
@@ -49,38 +62,36 @@ import com.fatih.adaptivecompositioncamera.domain.model.CompositionGuide
 import com.fatih.adaptivecompositioncamera.domain.model.ForegroundZone
 import com.fatih.adaptivecompositioncamera.domain.model.GuideLineStyle
 import com.fatih.adaptivecompositioncamera.domain.model.GuideStyle
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoQualityPreset
 import com.fatih.adaptivecompositioncamera.domain.model.SpiralOrientation
+import com.fatih.adaptivecompositioncamera.domain.model.VideoFpsRange
+import com.fatih.adaptivecompositioncamera.domain.model.VideoQualitySetting
+import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
+import com.fatih.adaptivecompositioncamera.capability.StabilizationRequestPlan
+import com.fatih.adaptivecompositioncamera.utility.CameraMath
 
 @Composable
 fun AspectRatioSheet(
-    resolutions: List<CameraResolution>,
-    selected: CameraResolution?,
-    onSelect: (CameraResolution) -> Unit,
+    sourceResolution: CameraResolution?,
+    selected: PhotoAspectRatio,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    onSelect: (PhotoAspectRatio) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val maximum = resolutions.firstOrNull()
-    val nativeRatios = resolutions.groupBy { it.aspectRatioLabel }.mapNotNull { (ratio, values) ->
-        val choice = values.firstOrNull { it.recommended } ?: values.firstOrNull()
-        choice?.let { ratio to it }
-    }.sortedBy { (ratio, _) -> listOf("4:3", "3:2", "16:9", "1:1").indexOf(ratio).let { if (it < 0) Int.MAX_VALUE else it } }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("Aspect ratio", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Native output ratios exposed by Android are listed below. Cropped ratios are never described as higher resolution.",
+                "Native capture size and output crop are separate. A crop is never presented as full-sensor resolution.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
             )
-            maximum?.let { resolution ->
-                RatioRow("Full sensor output", resolution, selected?.id == resolution.id) {
-                    onSelect(resolution)
-                    onDismiss()
-                }
-            }
-            nativeRatios.filterNot { it.second.id == maximum?.id }.forEach { (ratio, resolution) ->
-                RatioRow(ratio, resolution, selected?.id == resolution.id) {
-                    onSelect(resolution)
+            PhotoAspectRatio.entries.forEach { option ->
+                RatioRow(option, sourceResolution, viewportWidth, viewportHeight, selected == option) {
+                    onSelect(option)
                     onDismiss()
                 }
             }
@@ -89,15 +100,28 @@ fun AspectRatioSheet(
 }
 
 @Composable
-private fun RatioRow(label: String, resolution: CameraResolution, selected: Boolean, onClick: () -> Unit) {
+private fun RatioRow(
+    option: PhotoAspectRatio,
+    sourceResolution: CameraResolution?,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val dimensions = sourceResolution?.let {
+        CameraMath.cropDimensions(it.width, it.height, option, viewportWidth, viewportHeight)
+    }
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.titleMedium)
+            Text(option.label(), style = MaterialTheme.typography.titleMedium)
             Text(
-                "${resolution.megapixelLabel} — ${resolution.width} × ${resolution.height} — native ${resolution.format}",
+                dimensions?.let { (width, height) ->
+                    val kind = if (option == PhotoAspectRatio.FullSensor) "native" else "crop"
+                    "${CameraMath.megapixels(width, height)} MP - $width x $height - $kind JPEG"
+                } ?: "Available after camera discovery",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -111,47 +135,137 @@ private fun RatioRow(label: String, resolution: CameraResolution, selected: Bool
 fun ResolutionSheet(
     resolutions: List<CameraResolution>,
     selected: CameraResolution?,
+    reportedMaximum: CameraResolution?,
     onSelect: (CameraResolution) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val groups = listOf(
+        "Maximum" to resolutions.filter { it.maximumSensorMode || it.highResolution },
+        "Recommended" to resolutions.filter { it.recommended && !it.highResolution && !it.maximumSensorMode },
+        "Other" to resolutions.filterNot { it.highResolution || it.recommended || it.maximumSensorMode },
+    ).filter { it.second.isNotEmpty() }
+    val unavailableMaximum = reportedMaximum?.takeIf { maximum ->
+        maximum.maximumSensorMode && resolutions.none {
+            it.width == maximum.width && it.height == maximum.height
+        }
+    }
+    val presets = emptyList<Pair<PhotoQualityPreset, CameraResolution>>()
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
             Text("Photo resolution", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "Only JPEG sizes exposed to third-party Android apps are selectable.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
-            )
-            LazyColumn {
-                items(resolutions, key = { it.id }) { resolution ->
+            Spacer(Modifier.height(10.dp))
+            if (unavailableMaximum != null) {
+                Surface(
+                    color = Color.White.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                ) {
                     Row(
-                        Modifier.fillMaxWidth().clickable {
-                            onSelect(resolution)
-                            onDismiss()
-                        }.padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.Top,
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(resolution.megapixelLabel, style = MaterialTheme.typography.titleMedium)
-                                when {
-                                    resolution.recommended -> Badge("Recommended")
-                                    resolution.maximum -> Badge("Maximum")
-                                }
-                            }
+                        Icon(Icons.Rounded.Info, contentDescription = null)
+                        Column {
                             Text(
-                                "${resolution.width} x ${resolution.height}  |  ${resolution.aspectRatioLabel}  |  ${resolution.format}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                "${unavailableMaximum.megapixelLabel} detected",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                "${unavailableMaximum.width} x ${unavailableMaximum.height} requires a verified max-resolution session.",
+                                style = MaterialTheme.typography.bodySmall,
                             )
                         }
-                        if (selected?.id == resolution.id) Icon(Icons.Rounded.Check, contentDescription = "Selected")
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                }
+            }
+            if (presets.isNotEmpty()) {
+            Text(
+                "QUALITY PRESETS",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(vertical = 8.dp),
+            ) {
+                items(presets, key = { it.first.name }) { (preset, resolution) ->
+                    FilterChip(
+                        selected = selected?.id == resolution.id,
+                        onClick = { onSelect(resolution) },
+                        label = {
+                            Column {
+                                Text(preset.photoLabel())
+                                Text(
+                                    "${resolution.megapixelLabel} · ${resolution.width}×${resolution.height}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+            Text(
+                "CUSTOM RESOLUTION",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            }
+            LazyColumn {
+                groups.forEach { (title, options) ->
+                    item(key = "section:$title") {
+                        Text(
+                            title.uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 3.dp),
+                        )
+                    }
+                    items(options, key = { it.id }) { resolution ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                onSelect(resolution)
+                                onDismiss()
+                            }.padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            SelectionDot(selected?.id == resolution.id)
+                            Column(Modifier.weight(1f)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(resolution.megapixelLabel, style = MaterialTheme.typography.titleMedium)
+                                }
+                                Text(
+                                    "${resolution.width} x ${resolution.height} · ${resolution.aspectRatioLabel}${if (resolution.aspectRatioLabel == "1:1") " crop" else ""}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                val status = when {
+                                    resolution.maximumSensorMode || resolution.highResolution -> "Maximum"
+                                    resolution.recommended -> "Recommended"
+                                    resolution.maximum -> "Largest native output"
+                                    resolution.aspectRatioLabel == "1:1" -> "Square crop"
+                                    else -> null
+                                }
+                                if (status != null) Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SelectionDot(selected: Boolean) {
+    val color = MaterialTheme.colorScheme.primary
+    Canvas(Modifier.size(22.dp)) {
+        drawCircle(
+            color.copy(alpha = if (selected) 1f else 0.65f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()),
+        )
+        if (selected) drawCircle(color, radius = size.minDimension * 0.26f)
     }
 }
 
@@ -161,6 +275,215 @@ private fun Badge(text: String) {
         Text(text, Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
     }
 }
+
+@Composable
+fun VideoSettingsSheet(
+    mode: CameraMode,
+    supportedQualities: List<VideoQualitySetting>,
+    selectedQuality: VideoQualitySetting,
+    fpsRanges: List<VideoFpsRange>,
+    selectedFpsRange: VideoFpsRange?,
+    stabilizationModes: List<VideoStabilizationMode>,
+    selectedStabilization: VideoStabilizationMode,
+    stabilizationStatus: String,
+    stabilizationEvidence: String,
+    stabilizationPlan: StabilizationRequestPlan?,
+    effectiveStabilizationLabel: String,
+    acceptedStabilizationLabel: String,
+    onQuality: (VideoQualitySetting) -> Unit,
+    onFps: (VideoFpsRange) -> Unit,
+    onStabilization: (VideoStabilizationMode) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            val videoMode = mode in setOf(
+                CameraMode.Video,
+                CameraMode.SlowMotion,
+                CameraMode.HighFrameRate,
+                CameraMode.TimeLapse,
+            )
+            Text(if (videoMode) "Video configuration" else "Stabilization", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                if (videoMode) {
+                    "Only CameraX qualities and Camera2 FPS/stabilization modes exposed by this lens are listed."
+                } else {
+                    "Only stabilization modes exposed by Android for this lens and mode are listed."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
+            )
+            if (videoMode) {
+                Text("QUALITY", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    (listOf(VideoQualitySetting.Auto) + supportedQualities).distinct().forEach { quality ->
+                        FilterChip(
+                            selected = selectedQuality == quality,
+                            onClick = { onQuality(quality) },
+                            label = { Text(quality.videoLabel()) },
+                        )
+                    }
+                }
+                if (supportedQualities.isEmpty()) {
+                    Text("Waiting for CameraX quality discovery.", style = MaterialTheme.typography.bodySmall)
+                }
+                Text(
+                    "FRAME RATE",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 14.dp),
+                )
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    fpsRanges.forEach { range ->
+                        FilterChip(
+                            selected = selectedFpsRange == range,
+                            onClick = { onFps(range) },
+                            label = { Text(range.label) },
+                        )
+                    }
+                }
+                if (fpsRanges.isEmpty()) {
+                    Text("Frame rate is camera-managed; no standard reported range can be selected.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "STABILIZATION",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Badge("Accepted $acceptedStabilizationLabel")
+            }
+            Text(
+                "Supported by this camera/mode only. Auto resolves through the new Camera2 request plan.",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                stabilizationModes.forEach { mode ->
+                    FilterChip(
+                        selected = selectedStabilization == mode,
+                        enabled = mode != VideoStabilizationMode.Unsupported,
+                        onClick = { onStabilization(mode) },
+                        label = { Text(mode.stabilizationLabel()) },
+                    )
+                }
+            }
+            StabilizationEvidenceCard(
+                requested = selectedStabilization.stabilizationLabel(),
+                effective = effectiveStabilizationLabel,
+                accepted = acceptedStabilizationLabel,
+                plan = stabilizationPlan,
+                status = stabilizationStatus,
+                evidence = stabilizationEvidence,
+            )
+            Text(
+                "Accepted value updates only after Camera2 CaptureResult is received.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            if (
+                selectedStabilization in listOf(
+                    VideoStabilizationMode.Standard,
+                    VideoStabilizationMode.Preview,
+                    VideoStabilizationMode.Auto,
+                )
+            ) {
+                Text(
+                    "Electronic stabilization may crop the field of view. Availability can change with quality and FPS.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            Button(onClick = onDismiss, modifier = Modifier.padding(top = 18.dp)) { Text("Done") }
+        }
+    }
+}
+
+@Composable
+private fun StabilizationEvidenceCard(
+    requested: String,
+    effective: String,
+    accepted: String,
+    plan: StabilizationRequestPlan?,
+    status: String,
+    evidence: String,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text("Requested: $requested", style = MaterialTheme.typography.bodyMedium)
+            Text("Effective request: $effective", style = MaterialTheme.typography.bodyMedium)
+            Text("Accepted result: $accepted", style = MaterialTheme.typography.bodyMedium)
+            if (plan != null) {
+                Text(
+                    "Plan: OIS=${plan.requestOis}  EIS=${plan.requestStandardEis}  Preview=${plan.requestPreviewStabilization}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text("Status: $status", style = MaterialTheme.typography.bodySmall)
+            Text(
+                evidence,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private fun PhotoQualityPreset.photoLabel(): String = when (this) {
+    PhotoQualityPreset.Maximum -> "Maximum"
+    PhotoQualityPreset.High -> "High"
+    PhotoQualityPreset.Medium -> "Medium"
+    PhotoQualityPreset.StorageSaver -> "Storage saver"
+    PhotoQualityPreset.Custom -> "Custom"
+}
+
+private fun VideoQualitySetting.videoLabel(): String = when (this) {
+    VideoQualitySetting.Auto -> "Auto"
+    VideoQualitySetting.UHD -> "4K"
+    VideoQualitySetting.FHD -> "1080p"
+    VideoQualitySetting.HD -> "720p"
+    VideoQualitySetting.SD -> "480p"
+}
+
+private fun VideoStabilizationMode.stabilizationLabel(): String = when (this) {
+    VideoStabilizationMode.Off -> "Off"
+    VideoStabilizationMode.Standard -> "Standard EIS"
+    VideoStabilizationMode.Preview -> "Preview"
+    VideoStabilizationMode.Optical -> "Optical"
+    VideoStabilizationMode.Auto -> "Auto"
+    VideoStabilizationMode.Unsupported -> "Unsupported"
+}
+
+private fun formatBytes(bytes: Long): String =
+    if (bytes >= 1_048_576L) "${"%.1f".format(bytes / 1_048_576.0)} MB" else "${bytes / 1024} KB"
 
 @Composable
 fun CompositionSheet(
@@ -181,24 +504,20 @@ fun CompositionSheet(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text("Composition guide", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 4.dp))
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(142.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 12.dp).heightIn(max = 360.dp),
-            ) {
-                items(CompositionGuide.entries, key = { it.name }) { guide ->
-                    GuideTile(
-                        guide = guide,
-                        selected = guide == selected,
-                        style = style,
-                        onClick = {
-                            onSelect(guide)
-                            onDismiss()
-                        },
-                    )
-                }
-            }
+            Text(
+                "${professionalGuideCatalog.size} photographic guides · Swipe sideways, then tap to apply",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp).padding(top = 3.dp, bottom = 12.dp),
+            )
+            GuideCatalogGrid(
+                selected = selected,
+                style = style,
+                onSelect = { guide ->
+                    onSelect(guide)
+                    onDismiss()
+                },
+            )
             HorizontalDivider(Modifier.padding(vertical = 14.dp))
             Text("Guide appearance", style = MaterialTheme.typography.titleMedium)
             Row(
@@ -235,6 +554,29 @@ fun CompositionSheet(
                     selected = style.outline,
                     onClick = { onStyle(style.copy(outline = !style.outline)) },
                     label = { Text("Outline") },
+                )
+            }
+            Text("Orientation", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf(0, 90, 180, 270).forEach { degrees ->
+                    FilterChip(
+                        selected = style.overlayRotationDegrees == degrees,
+                        onClick = { onStyle(style.copy(overlayRotationDegrees = degrees)) },
+                        label = { Text("$degrees°") },
+                    )
+                }
+                FilterChip(
+                    selected = style.overlayMirrorHorizontal,
+                    onClick = { onStyle(style.copy(overlayMirrorHorizontal = !style.overlayMirrorHorizontal)) },
+                    label = { Text("Mirror") },
+                )
+                FilterChip(
+                    selected = style.overlayLocked,
+                    onClick = { onStyle(style.copy(overlayLocked = !style.overlayLocked)) },
+                    label = { Text(if (style.overlayLocked) "Locked" else "Lock") },
                 )
             }
             if (selected == CompositionGuide.GoldenSpiral) {
@@ -379,14 +721,38 @@ fun CompositionSheet(
 }
 
 @Composable
+private fun GuideCatalogGrid(
+    selected: CompositionGuide,
+    style: GuideStyle,
+    onSelect: (CompositionGuide) -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(professionalGuideCatalog, key = { it.name }) { guide ->
+            GuideTile(
+                guide = guide,
+                selected = guide == selected,
+                style = style,
+                onClick = { onSelect(guide) },
+                modifier = Modifier.width(174.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun GuideTile(
     guide: CompositionGuide,
     selected: Boolean,
     style: GuideStyle,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
+        modifier = modifier.heightIn(min = 156.dp),
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.small,
         border = if (selected) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
@@ -394,6 +760,20 @@ private fun GuideTile(
         Column(Modifier.padding(8.dp)) {
             Box(Modifier.fillMaxWidth().aspectRatio(1.45f).background(Color(0xFF24282D))) {
                 CompositionGuideOverlay(guide, mirrored = false, style = style.copy(thicknessDp = 1f, opacity = 0.8f))
+                if (selected) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).size(24.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = "Selected guide",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(4.dp),
+                        )
+                    }
+                }
             }
             Text(guide.title(), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 7.dp))
             Text(guide.description(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
@@ -401,39 +781,144 @@ private fun GuideTile(
     }
 }
 
+internal val professionalGuideCatalog = listOf(
+    CompositionGuide.None,
+    CompositionGuide.RuleOfThirds,
+    CompositionGuide.LeadingLines,
+    CompositionGuide.VanishingPoint,
+    CompositionGuide.GoldenRatio,
+    CompositionGuide.GoldenSpiral,
+    CompositionGuide.FrameInFrame,
+    CompositionGuide.Centered,
+    CompositionGuide.Symmetry,
+    CompositionGuide.Diagonal,
+    CompositionGuide.GoldenTriangle,
+    CompositionGuide.TextureRepetition,
+    CompositionGuide.Foreground,
+    CompositionGuide.EyeLine,
+    CompositionGuide.HorizonLevel,
+)
+
 @Composable
-fun MoreModesSheet(
+fun PocoStyleMoreScreen(
     modes: List<CameraMode>,
     activeMode: CameraMode,
     maxResolution: CameraResolution?,
     onSelect: (CameraMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
-            Text("More modes", style = MaterialTheme.typography.headlineSmall)
-            val additional = modes.filterNot { it in listOf(CameraMode.Portrait, CameraMode.Photo, CameraMode.Video) }
-            if (additional.isEmpty()) {
-                Text("No additional modes are exposed for this camera.", Modifier.padding(vertical = 24.dp))
-            } else {
-                additional.forEach { mode ->
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.92f))
+                .clickable(onClick = onDismiss),
+        ) {
+            val primaryModes = listOf(CameraMode.Photo, CameraMode.Video).filter { it in modes }
+            val additional = modes.filterNot { it in primaryModes }
+            Column(
+                Modifier
+                    .align(Alignment.Center)
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 26.dp)
+                    .clickable(enabled = false) {},
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(30.dp),
+            ) {
+                (additional.ifEmpty { primaryModes }).chunked(3).forEach { rowModes ->
                     Row(
-                        Modifier.fillMaxWidth().clickable {
-                            onSelect(mode)
-                            onDismiss()
-                        }.padding(vertical = 14.dp),
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(mode.label(maxResolution), style = MaterialTheme.typography.titleMedium)
-                            Text(mode.description(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        rowModes.forEach { mode ->
+                            PocoStyleMoreItem(
+                                mode = mode,
+                                active = mode == activeMode,
+                                maxResolution = maxResolution,
+                                onClick = {
+                                    onSelect(mode)
+                                    onDismiss()
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
                         }
-                        if (mode == activeMode) Icon(Icons.Rounded.Check, "Selected mode")
+                        repeat(3 - rowModes.size) {
+                            Box(Modifier.weight(1f))
+                        }
                     }
-                    HorizontalDivider()
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(42.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    primaryModes.forEach { mode ->
+                        Text(
+                            mode.label(maxResolution),
+                            color = if (mode == activeMode) Color(0xFFAEEA00) else Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clickable {
+                                    onSelect(mode)
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 4.dp, vertical = 12.dp),
+                        )
+                    }
+                    Text(
+                        "More",
+                        color = if (activeMode !in primaryModes) Color(0xFFAEEA00) else Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PocoStyleMoreItem(
+    mode: CameraMode,
+    active: Boolean,
+    maxResolution: CameraResolution?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .heightIn(min = 104.dp)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            Modifier
+                .size(60.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (active) Color.White.copy(alpha = 0.10f) else Color.Transparent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                mode.icon(),
+                contentDescription = mode.label(maxResolution),
+                tint = Color.White,
+                modifier = Modifier.size(34.dp),
+            )
+        }
+        Text(
+            mode.label(maxResolution),
+            color = if (active) Color(0xFFAEEA00) else Color.White,
+            style = MaterialTheme.typography.titleSmall,
+            maxLines = 1,
+            modifier = Modifier.padding(top = 7.dp),
+        )
     }
 }
 
@@ -449,11 +934,15 @@ private val guideColors = listOf(
 fun CompositionGuide.title(): String = when (this) {
     CompositionGuide.None -> "None"
     CompositionGuide.RuleOfThirds -> "Rule of Thirds"
+    CompositionGuide.LeadingLines -> "Leading Lines"
     CompositionGuide.VanishingPoint -> "Vanishing Point"
     CompositionGuide.GoldenRatio -> "Golden Ratio"
     CompositionGuide.GoldenSpiral -> "Golden Spiral"
     CompositionGuide.FrameInFrame -> "Frame in a Frame"
     CompositionGuide.Centered -> "Centered"
+    CompositionGuide.Symmetry -> "Symmetry"
+    CompositionGuide.Diagonal -> "Diagonal"
+    CompositionGuide.GoldenTriangle -> "Golden Triangle"
     CompositionGuide.TextureRepetition -> "Texture & Repetition"
     CompositionGuide.Foreground -> "Foreground"
     CompositionGuide.EyeLine -> "Eye Line"
@@ -463,11 +952,15 @@ fun CompositionGuide.title(): String = when (this) {
 private fun CompositionGuide.description(): String = when (this) {
     CompositionGuide.None -> "Unobstructed preview"
     CompositionGuide.RuleOfThirds -> "Balance subjects on thirds"
+    CompositionGuide.LeadingLines -> "Guide attention into the frame"
     CompositionGuide.VanishingPoint -> "Movable manual perspective"
     CompositionGuide.GoldenRatio -> "Phi-based alignment grid"
     CompositionGuide.GoldenSpiral -> "Golden rectangle arc sequence"
     CompositionGuide.FrameInFrame -> "Movable inner framing area"
     CompositionGuide.Centered -> "Symmetry and center target"
+    CompositionGuide.Symmetry -> "Mirror balance across the center"
+    CompositionGuide.Diagonal -> "Dynamic diagonal alignment"
+    CompositionGuide.GoldenTriangle -> "Diagonal golden-section balance"
     CompositionGuide.TextureRepetition -> "Manual repeating-pattern grid"
     CompositionGuide.Foreground -> "Separate foreground placement"
     CompositionGuide.EyeLine -> "Portrait and selfie eye line"
@@ -479,8 +972,9 @@ fun CameraMode.label(maxResolution: CameraResolution? = null): String = when (th
     CameraMode.Photo -> "Photo"
     CameraMode.Video -> "Video"
     CameraMode.Pro -> "Pro"
+    CameraMode.Documents -> "Documents"
     CameraMode.Night -> "Night"
-    CameraMode.MaximumResolution -> maxResolution?.megapixelLabel ?: "Max Resolution"
+    CameraMode.MaximumResolution -> "Ultra HD"
     CameraMode.SlowMotion -> "Slow Motion"
     CameraMode.HighFrameRate -> "High Frame Rate"
     CameraMode.TimeLapse -> "Time-lapse"
@@ -490,6 +984,7 @@ fun CameraMode.label(maxResolution: CameraResolution? = null): String = when (th
 
 private fun CameraMode.description(): String = when (this) {
     CameraMode.Pro -> "Manual controls supported by this camera"
+    CameraMode.Documents -> "Guided document capture saved to gallery"
     CameraMode.MaximumResolution -> "Slower capture and larger files"
     CameraMode.SlowMotion -> "Uses an exposed high-speed configuration"
     CameraMode.HighFrameRate -> "Records using supported high-speed FPS"
@@ -502,9 +997,25 @@ private fun CameraMode.description(): String = when (this) {
     CameraMode.Video -> "Standard video recording"
 }
 
+private fun CameraMode.icon() = when (this) {
+    CameraMode.Pro -> Icons.Rounded.Tune
+    CameraMode.Documents -> Icons.Rounded.DocumentScanner
+    CameraMode.MaximumResolution -> Icons.Rounded.HighQuality
+    else -> Icons.Rounded.CameraAlt
+}
+
 private fun SpiralOrientation.shortLabel(): String = when (this) {
     SpiralOrientation.TopLeft -> "TL"
     SpiralOrientation.TopRight -> "TR"
     SpiralOrientation.BottomLeft -> "BL"
     SpiralOrientation.BottomRight -> "BR"
+}
+
+fun PhotoAspectRatio.label(): String = when (this) {
+    PhotoAspectRatio.FullSensor -> "Full sensor"
+    PhotoAspectRatio.Ratio4x3 -> "4:3"
+    PhotoAspectRatio.Ratio3x2 -> "3:2"
+    PhotoAspectRatio.Ratio16x9 -> "16:9"
+    PhotoAspectRatio.Ratio1x1 -> "1:1"
+    PhotoAspectRatio.FullScreen -> "Full screen"
 }

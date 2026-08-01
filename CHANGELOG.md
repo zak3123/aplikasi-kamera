@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.0
+
+- Scan Android-exposed logical cameras and their physical-camera metadata without treating physical-only IDs as selectable lenses.
+- Report complete normal, high-resolution, and API 31+ maximum-resolution JPEG outputs plus AF, AE, AWB, zoom, FPS, OIS, EIS, and capture-request metadata.
+- Add real photo quality presets derived only from exposed output dimensions.
+- Add CameraX video quality, Camera2 FPS-range, and dynamic stabilization controls; verify OIS/EIS/preview stabilization from capture results.
+- Add leading-lines, symmetry, diagonal, and golden-triangle overlays plus rotate, mirror, and lock controls.
+- Add local diagnostics copy and TXT export.
+- Apply sensor frame duration with manual ISO/shutter requests.
+
+## 0.5.0
+
+- Reworked the camera chrome again with smaller transparent quick controls, a thinner portrait gradient, a 164 dp landscape rail, and a stock-camera-style selected mode indicator.
+- Added Camera2 `getHighResolutionOutputSizes(JPEG)` discovery, which was the missing Android path commonly used for slower high-megapixel JPEG outputs.
+- Configured CameraX `ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE` only for a genuinely reported high-resolution output and requires an exact binding for Maximum Resolution mode.
+- Separated normal JPEG, CameraX-selectable high-resolution JPEG, and API 31+ maximum-sensor-map JPEG outputs.
+- Prevented maximum-sensor-map sizes that CameraX cannot select from appearing as working capture choices; they remain visible in Camera information and the resolution sheet as detected diagnostics.
+- Grouped the resolution sheet into High resolution, Recommended, and Standard sections and retained actual saved-file verification.
+- Replaced the empty developer-like More panel with a concise capability explanation for the active lens.
+
+## 0.4.1
+
+- Fixed the composition sheet so all 11 implemented photographic guides are reachable instead of only the first four.
+- Replaced the nested height-limited lazy grid with one responsive sheet scroll and a two-column phone / three-column wide-layout catalog.
+- Reordered guide cards into a photography-oriented sequence and added an explicit catalog count plus selected-card indicator.
+- Added regression coverage proving the professional guide catalog contains every supported guide exactly once.
+
+## 0.4.0
+
+- Replaced the shared translucent camera dashboard with distinct compact portrait controls and a safe-edge landscape capture rail.
+- Unified PreviewView, focus/exposure gestures, guide interaction, and guide rendering inside one measured and clipped preview viewport.
+- Added CameraX `UseCaseGroup`/`ViewPort` binding, display target rotation, and an optional match-preview-crop setting.
+- Separated native capture resolution from 4:3, 3:2, 16:9, 1:1, and full-screen output crops with calculated output dimensions and megapixels.
+- Included API 31+ maximum-resolution JPEG stream-map outputs in selection and requested maximum sensor-pixel mode only for marked maximum outputs.
+- Added requested, bound, actual saved, sensor-pixel-mode, aspect-ratio, and mismatch diagnostics.
+- Verified saved JPEG dimensions from image headers without decoding full-resolution bitmaps and expanded viewer metadata.
+- Added immersive transient system-bar behavior and centralized camera UI dimension tokens.
+- Expanded unit coverage for crop calculations, maximum-resolution stream maps, and adaptive preview viewport fitting.
+
 ## 0.3.0
 
 - Added persisted Android camera-ID selection and per-camera output resolution selection with safe lens labels.

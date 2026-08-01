@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -44,6 +44,7 @@ fun SettingsScreen(
     onAudio: (Boolean) -> Unit,
     onHaptics: (Boolean) -> Unit,
     onVolumeShutter: (Boolean) -> Unit,
+    onMatchPreviewCrop: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -52,7 +53,7 @@ fun SettingsScreen(
             TopAppBar(
                 modifier = Modifier.statusBarsPadding(),
                 title = { Text("Settings") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back to camera") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to camera") } },
             )
         },
     ) { padding ->
@@ -65,6 +66,14 @@ fun SettingsScreen(
             item { SettingSwitch("Save mirrored selfie", settings.saveMirroredSelfie, onSaveMirrored) }
             item { SettingSwitch("Screen flash", settings.screenFlash, onScreenFlash) }
             item { SectionTitle("Capture") }
+            item {
+                SettingSwitch(
+                    "Match saved photo to preview crop",
+                    settings.matchPreviewCrop,
+                    onMatchPreviewCrop,
+                    "When disabled, the native sensor output is saved without the preview crop.",
+                )
+            }
             item { SettingSwitch("Record video audio", settings.audioEnabled, onAudio) }
             item { SettingSwitch("Camera haptics", settings.haptics, onHaptics) }
             item { SettingSwitch("Volume-button shutter", settings.volumeShutter, onVolumeShutter) }

@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-07-27 21:02:21 +07:00",
+  "projectPath": "D:\\aplikasi-kamera",
+  "adbDeviceConnected": false,
+  "genuine48MpExposed": "unverified",
+  "genuine48MpCaptured": "unverified",
+  "cameras": [],
+  "notes": [
+    "No Android device was connected through ADB during this run.",
+    "Runtime camera IDs, StreamConfigurationMap sizes, high-resolution JPEG sizes, maximum-resolution maps, RAW sizes, and actual saved dimensions must be collected on device."
+  ]
+}

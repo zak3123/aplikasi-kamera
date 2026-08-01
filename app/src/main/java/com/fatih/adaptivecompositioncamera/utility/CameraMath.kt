@@ -2,6 +2,11 @@ package com.fatih.adaptivecompositioncamera.utility
 
 import android.util.Size
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoQualityPreset
+import com.fatih.adaptivecompositioncamera.domain.model.PhotoAspectRatio
+import com.fatih.adaptivecompositioncamera.domain.model.StabilizationSupport
+import com.fatih.adaptivecompositioncamera.domain.model.VideoQualitySetting
+import com.fatih.adaptivecompositioncamera.domain.model.VideoStabilizationMode
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.round
@@ -25,6 +30,7 @@ enum class AdaptiveLayout { PhonePortrait, PhoneLandscape, TabletPortrait, Table
 
 object CameraMath {
     const val PHI = 1.61803398875f
+    private const val GOLDEN_GUIDE_MARGIN = 0.025f
 
     fun megapixels(width: Int, height: Int): Double {
         if (width <= 0 || height <= 0) return 0.0
@@ -33,8 +39,15 @@ object CameraMath {
 
     fun aspectRatioLabel(width: Int, height: Int): String {
         if (width <= 0 || height <= 0) return "Unknown"
-        val gcd = gcd(width, height)
-        return "${width / gcd}:${height / gcd}"
+        val ratio = maxOf(width, height).toDouble() / minOf(width, height).toDouble()
+        val common = listOf(
+            1.0 to "1:1",
+            4.0 / 3.0 to "4:3",
+            3.0 / 2.0 to "3:2",
+            16.0 / 9.0 to "16:9",
+        ).minByOrNull { abs(ratio - it.first) }
+        if (common != null && abs(ratio - common.first) <= 0.06) return common.second
+        return if (ratio > 1.9) "Wide crop" else "Full"
     }
 
     fun sortResolutions(sizes: List<Size>, format: String): List<CameraResolution> {
@@ -69,6 +82,64 @@ object CameraMath {
         return resolutions.filter { abs(it.width.toFloat() / it.height - target) <= tolerance }
     }
 
+    fun selectPhotoQuality(
+        resolutions: List<CameraResolution>,
+        preset: PhotoQualityPreset,
+    ): CameraResolution? {
+        if (resolutions.isEmpty() || preset == PhotoQualityPreset.Custom) return null
+        val sorted = resolutions.distinctBy { "${it.width}:${it.height}:${it.format}" }
+            .sortedByDescending { it.width.toLong() * it.height }
+        if (preset == PhotoQualityPreset.Maximum) return sorted.first()
+        val target = when (preset) {
+            PhotoQualityPreset.High -> 14.0
+            PhotoQualityPreset.Medium -> 8.0
+            PhotoQualityPreset.StorageSaver -> 4.0
+            else -> return sorted.first()
+        }
+        val preferredRange = when (preset) {
+            PhotoQualityPreset.High -> 10.0..18.0
+            PhotoQualityPreset.Medium -> 6.0..10.0
+            PhotoQualityPreset.StorageSaver -> 2.5..5.5
+            else -> 0.0..Double.MAX_VALUE
+        }
+        val normalOutputs = sorted.filterNot { it.maximumSensorMode || it.highResolution }
+        return normalOutputs.filter { it.megapixels in preferredRange }
+            .minByOrNull { abs(it.megapixels - target) }
+            ?: normalOutputs.minByOrNull { abs(it.megapixels - target) }
+            ?: sorted.minByOrNull { abs(it.megapixels - target) }
+    }
+
+    fun estimatedJpegBytes(resolution: CameraResolution): Long =
+        (resolution.width.toLong() * resolution.height * 0.35).toLong()
+
+    fun stabilizationModes(support: StabilizationSupport): List<VideoStabilizationMode> {
+        if (!support.electronicVideo && !support.preview && !support.optical) {
+            return listOf(VideoStabilizationMode.Unsupported)
+        }
+        return buildList {
+            add(VideoStabilizationMode.Off)
+            if (support.electronicVideo) add(VideoStabilizationMode.Standard)
+            if (support.preview) add(VideoStabilizationMode.Preview)
+            if (support.optical) add(VideoStabilizationMode.Optical)
+            add(VideoStabilizationMode.Auto)
+        }
+    }
+
+    fun videoFallbackOrder(
+        requested: VideoQualitySetting,
+        supported: List<VideoQualitySetting>,
+    ): List<VideoQualitySetting> {
+        val priority = listOf(
+            VideoQualitySetting.UHD,
+            VideoQualitySetting.FHD,
+            VideoQualitySetting.HD,
+            VideoQualitySetting.SD,
+        )
+        if (requested == VideoQualitySetting.Auto) return priority.filter { it in supported }
+        val requestedIndex = priority.indexOf(requested)
+        return priority.drop(requestedIndex.coerceAtLeast(0)).filter { it in supported }
+    }
+
     fun ruleOfThirds(width: Float, height: Float): List<FloatPoint> = listOf(
         FloatPoint(width / 3f, 0f), FloatPoint(width / 3f, height),
         FloatPoint(width * 2f / 3f, 0f), FloatPoint(width * 2f / 3f, height),
@@ -78,14 +149,16 @@ object CameraMath {
 
     fun fitGoldenRectangle(width: Float, height: Float): FloatBounds {
         if (width <= 0f || height <= 0f) return FloatBounds(0f, 0f, 0f, 0f)
+        val availableWidth = width * (1f - GOLDEN_GUIDE_MARGIN * 2f)
+        val availableHeight = height * (1f - GOLDEN_GUIDE_MARGIN * 2f)
         val targetWidth: Float
         val targetHeight: Float
-        if (width / height >= PHI) {
-            targetHeight = height
-            targetWidth = height * PHI
+        if (availableWidth / availableHeight >= PHI) {
+            targetHeight = availableHeight
+            targetWidth = availableHeight * PHI
         } else {
-            targetWidth = width
-            targetHeight = width / PHI
+            targetWidth = availableWidth
+            targetHeight = availableWidth / PHI
         }
         val left = (width - targetWidth) / 2f
         val top = (height - targetHeight) / 2f
@@ -181,6 +254,76 @@ object CameraMath {
         return FloatPoint(point.x * scale - cropX, point.y * scale - cropY)
     }
 
+    fun fitAspectRatio(width: Float, height: Float, targetAspectRatio: Float): FloatBounds {
+        if (width <= 0f || height <= 0f || targetAspectRatio <= 0f) return FloatBounds(0f, 0f, 0f, 0f)
+        val targetWidth: Float
+        val targetHeight: Float
+        if (width / height >= targetAspectRatio) {
+            targetHeight = height
+            targetWidth = height * targetAspectRatio
+        } else {
+            targetWidth = width
+            targetHeight = width / targetAspectRatio
+        }
+        val left = (width - targetWidth) / 2f
+        val top = (height - targetHeight) / 2f
+        return FloatBounds(left, top, left + targetWidth, top + targetHeight)
+    }
+
+    fun cropDimensions(
+        sourceWidth: Int,
+        sourceHeight: Int,
+        aspectRatio: PhotoAspectRatio,
+        viewportWidth: Int = 0,
+        viewportHeight: Int = 0,
+    ): Pair<Int, Int> {
+        if (sourceWidth <= 0 || sourceHeight <= 0) return 0 to 0
+        val sourceRatio = sourceWidth.toDouble() / sourceHeight
+        val targetRatio = when (aspectRatio) {
+            PhotoAspectRatio.FullSensor -> sourceRatio
+            PhotoAspectRatio.Ratio4x3 -> 4.0 / 3.0
+            PhotoAspectRatio.Ratio3x2 -> 3.0 / 2.0
+            PhotoAspectRatio.Ratio16x9 -> 16.0 / 9.0
+            PhotoAspectRatio.Ratio1x1 -> 1.0
+            PhotoAspectRatio.FullScreen -> {
+                if (viewportWidth > 0 && viewportHeight > 0) {
+                    maxOf(viewportWidth, viewportHeight).toDouble() / minOf(viewportWidth, viewportHeight)
+                } else sourceRatio
+            }
+        }
+        val width: Int
+        val height: Int
+        if (targetRatio >= sourceRatio) {
+            width = sourceWidth
+            height = (sourceWidth / targetRatio).toInt()
+        } else {
+            width = (sourceHeight * targetRatio).toInt()
+            height = sourceHeight
+        }
+        return width.evenDimension(sourceWidth) to height.evenDimension(sourceHeight)
+    }
+
+    fun previewAspectRatio(
+        sourceWidth: Int,
+        sourceHeight: Int,
+        aspectRatio: PhotoAspectRatio,
+        landscape: Boolean,
+        fullScreenAspectRatio: Float,
+    ): Float {
+        val sensorRatio = if (sourceWidth > 0 && sourceHeight > 0) {
+            maxOf(sourceWidth, sourceHeight).toFloat() / minOf(sourceWidth, sourceHeight)
+        } else 4f / 3f
+        val landscapeRatio = when (aspectRatio) {
+            PhotoAspectRatio.FullSensor -> sensorRatio
+            PhotoAspectRatio.Ratio4x3 -> 4f / 3f
+            PhotoAspectRatio.Ratio3x2 -> 3f / 2f
+            PhotoAspectRatio.Ratio16x9 -> 16f / 9f
+            PhotoAspectRatio.Ratio1x1 -> 1f
+            PhotoAspectRatio.FullScreen -> fullScreenAspectRatio.coerceAtLeast(1f)
+        }
+        return if (landscape) landscapeRatio else 1f / landscapeRatio
+    }
+
     fun adaptiveLayout(widthDp: Int, heightDp: Int): AdaptiveLayout {
         val tablet = minOf(widthDp, heightDp) >= 600
         return when {
@@ -194,6 +337,20 @@ object CameraMath {
     fun horizonRollDegrees(gravityX: Float, gravityY: Float): Float {
         if (gravityX == 0f && gravityY == 0f) return 0f
         return Math.toDegrees(atan2(gravityX.toDouble(), gravityY.toDouble())).toFloat()
+    }
+
+    fun jpegOrientationDegrees(
+        sensorOrientationDegrees: Int,
+        deviceRotationDegrees: Int,
+        frontFacing: Boolean,
+    ): Int {
+        val sensor = ((sensorOrientationDegrees % 360) + 360) % 360
+        val device = ((deviceRotationDegrees % 360) + 360) % 360
+        return if (frontFacing) {
+            (sensor + device) % 360
+        } else {
+            (sensor - device + 360) % 360
+        }
     }
 
     fun isFrameRateValid(candidateFps: Int, ranges: List<IntRange>): Boolean {
@@ -211,14 +368,25 @@ object CameraMath {
 
     private fun List<Pair<Int, Int>>.indexOfFirstRecommended(): Int {
         if (isEmpty()) return -1
-        val twelveMp = indexOfFirst {
+        val nativeTwelveMp = indexOfFirst {
             val pixels = it.first.toLong() * it.second.toLong()
-            pixels in 8_000_000L..14_000_000L
+            pixels in 8_000_000L..14_000_000L && it.isNearAspect(4, 3)
         }
-        return if (twelveMp >= 0) twelveMp else lastIndex.coerceAtLeast(0)
+        if (nativeTwelveMp >= 0) return nativeTwelveMp
+        val nativeFourByThree = indexOfFirst { it.isNearAspect(4, 3) }
+        if (nativeFourByThree >= 0) return nativeFourByThree
+        val nonSquareTwelveMp = indexOfFirst {
+            val pixels = it.first.toLong() * it.second.toLong()
+            pixels in 8_000_000L..14_000_000L && !it.isNearAspect(1, 1)
+        }
+        return if (nonSquareTwelveMp >= 0) nonSquareTwelveMp else lastIndex.coerceAtLeast(0)
     }
 
-    private tailrec fun gcd(a: Int, b: Int): Int {
-        return if (b == 0) abs(a) else gcd(b, a % b)
+    private fun Pair<Int, Int>.isNearAspect(widthRatio: Int, heightRatio: Int): Boolean {
+        val longSide = maxOf(first, second).toFloat()
+        val shortSide = minOf(first, second).coerceAtLeast(1).toFloat()
+        return abs(longSide / shortSide - widthRatio.toFloat() / heightRatio.toFloat()) <= 0.06f
     }
+
+    private fun Int.evenDimension(maximum: Int): Int = coerceIn(2, maximum).let { if (it % 2 == 0) it else it - 1 }
 }
