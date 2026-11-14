@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.hardware.camera2.CameraMetadata
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -113,7 +114,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.fatih.adaptivecompositioncamera.camera.CameraEvidenceLogger
 import com.fatih.adaptivecompositioncamera.camera.CameraRuntime
+import com.fatih.adaptivecompositioncamera.camera.RebindGate
 import com.fatih.adaptivecompositioncamera.capability.CameraConfigurationResolver
 import com.fatih.adaptivecompositioncamera.capability.DefaultStabilizationResolver
 import com.fatih.adaptivecompositioncamera.capability.ModeConflictResolver
@@ -193,9 +196,18 @@ fun CameraScreen(
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
-    val controlRotationTarget = rememberCameraControlRotationDegrees()
+    val displayRotation = rememberDisplayRotation()
+    val orientationState = rememberCameraOrientationState(displayRotation = displayRotation)
+    var animatedControlRotationTarget by remember { mutableFloatStateOf(orientationState.relativeControlDegrees) }
+    LaunchedEffect(orientationState.relativeControlDegrees) {
+        animatedControlRotationTarget = shortestRotationTarget(
+            currentAngle = animatedControlRotationTarget,
+            targetAngle = orientationState.relativeControlDegrees,
+        )
+    }
     val controlRotationDegrees by animateFloatAsState(
-        targetValue = controlRotationTarget,
+        targetValue = animatedControlRotationTarget,
+        animationSpec = androidx.compose.animation.core.tween(220),
         label = "camera-control-rotation",
     )
 
@@ -306,6 +318,7 @@ fun CameraScreen(
     var showExposure by remember { mutableStateOf(false) }
     var isRecording by remember { mutableStateOf(false) }
     var isRecordingPaused by remember { mutableStateOf(false) }
+    val rebindGate = remember { RebindGate() }
     var recordingSeconds by remember { mutableIntStateOf(0) }
     var flashVisible by remember { mutableStateOf(false) }
     var captureEffectVisible by remember { mutableStateOf(false) }
@@ -532,23 +545,37 @@ fun CameraScreen(
         }
     }
 
+    LaunchedEffect(orientationState.captureTargetRotation) {
+        runtime.updateTargetRotation(orientationState.captureTargetRotation)
+    }
+    LaunchedEffect(displayRotation) {
+        runtime.updateDisplayRotation(displayRotation)
+        CameraEvidenceLogger.record(context, "DISPLAY_ROTATION", "display=$displayRotation recording=${runtime.isRecordingActive}")
+    }
+
+    val previewReady = previewSize.width > 0 && previewSize.height > 0
+    val isLandscapeConfig = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     LaunchedEffect(
         previewView,
-        previewSize,
-        captureViewportSize,
+        previewReady,
         lensFacing,
+        activeCapability?.cameraId,
         selectedResolution?.id,
         settings.mode,
         effectivePhotoAspect,
         settings.matchPreviewCrop,
-        configuration.orientation,
+        if (settings.matchPreviewCrop) isLandscapeConfig else false,
         cameraRebindToken,
         videoQuality,
         videoFpsRange,
         videoStabilization,
     ) {
         val view = previewView ?: return@LaunchedEffect
-        if (previewSize.width <= 0 || previewSize.height <= 0) return@LaunchedEffect
+        if (!previewReady) return@LaunchedEffect
+        if (!rebindGate.request(recordingActive = isRecording || runtime.isRecordingActive)) {
+            CameraEvidenceLogger.record(context, "REBIND_DEFERRED", "recording active; rebind replays after Finalize")
+            return@LaunchedEffect
+        }
         val viewport = captureViewportSize.takeIf { it.width > 0 && it.height > 0 } ?: previewSize
         val selectorFacing = when (lensFacing) {
             LensFacing.Front -> CameraSelector.LENS_FACING_FRONT
@@ -564,7 +591,8 @@ fun CameraScreen(
             mode = settings.mode,
             viewportWidth = viewport.width,
             viewportHeight = viewport.height,
-            targetRotation = localView.display?.rotation ?: AndroidSurface.ROTATION_0,
+            targetRotation = orientationState.captureTargetRotation,
+            displayRotation = displayRotation,
             matchPreviewCrop = settings.matchPreviewCrop,
             videoQuality = videoQuality,
             videoFpsRange = videoFpsRange,
@@ -734,7 +762,7 @@ fun CameraScreen(
                     reverseHorizontal = isFront && settings.saveMirroredSelfie,
                     cameraId = activeCapability?.cameraId,
                     resolution = selectedResolution,
-                    targetRotation = localView.display?.rotation ?: AndroidSurface.ROTATION_0,
+                    targetRotation = orientationState.captureTargetRotation,
                     flashMode = flashMode,
                 )
                     .onSuccess { uri ->
@@ -812,6 +840,7 @@ fun CameraScreen(
             runtime.startVideo(settings.audioEnabled)
                 .catch {
                     isRecording = false
+                    if (rebindGate.onRecordingEnded()) cameraRebindToken++
                     lastRecordingError = it.message ?: "Video recording failed."
                     onMessage(lastRecordingError!!)
                 }
@@ -819,6 +848,7 @@ fun CameraScreen(
                     if (event is VideoRecordEvent.Finalize) {
                         isRecording = false
                         isRecordingPaused = false
+                        if (rebindGate.onRecordingEnded()) cameraRebindToken++
                         if (event.hasError()) {
                             lastRecordingError = "Recording failed with error ${event.error}."
                             onMessage(lastRecordingError!!)
@@ -869,8 +899,8 @@ fun CameraScreen(
     BoxWithConstraints(modifier.fillMaxSize().background(Color.Black)) {
         val layout = CameraMath.adaptiveLayout(maxWidth.value.toInt(), maxHeight.value.toInt())
         val policy = cameraUiLayoutPolicy(layout)
-        val guideTop = if (policy.landscape) 10.dp else 72.dp
-        val guideBottom = if (policy.landscape) 10.dp else CameraUiTokens.portraitControlsHeight + 10.dp
+        val guideTop = if (policy.landscape) 58.dp else 72.dp
+        val guideBottom = if (policy.landscape) 82.dp else CameraUiTokens.portraitControlsHeight + 10.dp
         val guideEnd = if (policy.landscape) policy.captureRailWidth + 8.dp else 6.dp
         val guideStart = 6.dp
         val fullLandscapeRatio = maxOf(maxWidth.value, maxHeight.value) /
@@ -1005,7 +1035,11 @@ fun CameraScreen(
 
         if (!isRecording && !captureInProgress) {
             PocoStyleTopControls(
-                modifier = (if (policy.landscape) Modifier.align(Alignment.TopStart) else Modifier.align(Alignment.TopCenter))
+                modifier = (if (policy.landscape) {
+                    Modifier.align(Alignment.TopStart).padding(end = policy.captureRailWidth)
+                } else {
+                    Modifier.align(Alignment.TopCenter)
+                })
                     .statusBarsPadding().displayCutoutPadding().padding(horizontal = 8.dp, vertical = 6.dp),
                 hasFlash = runtimeInfo.hasFlash || (isFront && settings.screenFlash),
                 flashMode = flashMode,
@@ -1052,10 +1086,14 @@ fun CameraScreen(
 
         AnimatedVisibility(
             visible = showQuickSettings && !isRecording && !captureInProgress,
-            modifier = (if (policy.landscape) Modifier.align(Alignment.TopStart) else Modifier.align(Alignment.TopCenter))
+            modifier = (if (policy.landscape) {
+                Modifier.align(Alignment.TopStart).padding(end = policy.captureRailWidth)
+            } else {
+                Modifier.align(Alignment.TopCenter)
+            })
                 .statusBarsPadding()
                 .displayCutoutPadding()
-                .padding(top = if (policy.landscape) 58.dp else 62.dp, start = 8.dp, end = 8.dp),
+                .padding(top = if (policy.landscape) 56.dp else 62.dp, start = 8.dp, end = 8.dp),
         ) {
             PocoStyleQuickSettings(
                 hasAspectRatio = settings.mode != CameraMode.Documents,
@@ -1102,7 +1140,11 @@ fun CameraScreen(
                         if (runtime.pauseVideo()) true else false
                     }
                 },
-                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 10.dp),
+                modifier = (if (policy.landscape) {
+                    Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 10.dp)
+                } else {
+                    Modifier.align(Alignment.TopCenter).padding(top = 10.dp)
+                }).statusBarsPadding().displayCutoutPadding().rotate(controlRotationDegrees),
             )
         }
 
@@ -1161,10 +1203,10 @@ fun CameraScreen(
                 modifier = if (policy.landscape) {
                     Modifier.align(Alignment.BottomCenter)
                         .padding(
-                            start = 0.dp,
+                            start = 12.dp,
                             top = 0.dp,
                             end = policy.captureRailWidth + 12.dp,
-                            bottom = 10.dp,
+                            bottom = CameraUiTokens.landscapeStripHeight + 4.dp,
                         )
                         .widthIn(max = 620.dp)
                 } else {
@@ -1180,13 +1222,52 @@ fun CameraScreen(
             )
         }
 
+        if (policy.landscape && !isRecording && !captureInProgress) {
+            PocoStyleLandscapeStrip(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(end = policy.captureRailWidth)
+                    .navigationBarsPadding()
+                    .displayCutoutPadding(),
+                activeMode = cameraUiState.activeCaptureMode,
+                availableModes = availableModes,
+                availableCameras = availableCameras.filter {
+                    it.lensFacing == lensFacing || it.lensFacing == LensFacing.External
+                },
+                activeCameraId = activeCameraId,
+                maxResolution = activeCapability?.displayMaximumResolution,
+                zoom = zoom,
+                minZoom = runtimeInfo.minZoom,
+                maxZoom = runtimeInfo.maxZoom,
+                showZoomSlider = showZoomSlider,
+                onToggleZoomSlider = { showZoomSlider = !showZoomSlider },
+                onZoom = { zoom = runtime.zoomTo(it) },
+                onCamera = { camera ->
+                    if (!captureInProgress && !isRecording) {
+                        activeCameraId = camera.cameraId
+                        onCameraChange(camera.cameraId)
+                        zoom = 1f
+                        focusPoint = null
+                        showExposure = false
+                    }
+                },
+                onMode = { if (!isRecording && !captureInProgress) selectMode(it) },
+                onMore = { if (!isRecording && !captureInProgress) showMoreSheet = true },
+                controlRotationDegrees = controlRotationDegrees,
+            )
+        }
+
         PocoStyleShutterControls(
             modifier = if (policy.landscape) {
-                Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(policy.captureRailWidth)
+                // Insets outside the fixed-width rail so a cutout/nav bar never squeezes the buttons.
+                Modifier.align(Alignment.CenterEnd)
                     .navigationBarsPadding().displayCutoutPadding()
+                    .fillMaxHeight().width(policy.captureRailWidth)
             } else {
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .widthIn(max = policy.controlsMaximumWidth).navigationBarsPadding()
+                    .widthIn(max = policy.controlsMaximumWidth)
+                    .navigationBarsPadding()
+                    .displayCutoutPadding()
             },
             landscape = policy.landscape,
             activeMode = cameraUiState.activeCaptureMode,
@@ -1219,7 +1300,7 @@ fun CameraScreen(
                 showExposure = false
             },
             onCamera = { camera ->
-                if (!captureInProgress) {
+                if (!captureInProgress && !isRecording) {
                     activeCameraId = camera.cameraId
                     onCameraChange(camera.cameraId)
                     zoom = 1f
@@ -1526,17 +1607,21 @@ internal fun friendlyTopMegapixelLabel(megapixels: Double): String {
 @Composable
 private fun FocusIndicator(point: Offset, modifier: Modifier = Modifier) {
     val radius = with(LocalDensity.current) { (CameraUiTokens.focusRingDiameter / 2).toPx() }
+    // New Animatable per tap point: ring always starts large and settles, never replays from a stale value.
+    val scale = remember(point) { androidx.compose.animation.core.Animatable(1.28f) }
+    LaunchedEffect(point) { scale.animateTo(1f, androidx.compose.animation.core.tween(180)) }
     Canvas(modifier) {
+        val scaledRadius = radius * scale.value
         drawCircle(
             Color(0xFFFFD166),
-            radius = radius,
+            radius = scaledRadius,
             center = point,
             style = Stroke(width = 2.2.dp.toPx()),
         )
-        drawLine(Color(0xFFFFD166), Offset(point.x - radius, point.y), Offset(point.x - radius * 0.64f, point.y), 2.2.dp.toPx(), StrokeCap.Square)
-        drawLine(Color(0xFFFFD166), Offset(point.x + radius * 0.64f, point.y), Offset(point.x + radius, point.y), 2.2.dp.toPx(), StrokeCap.Square)
-        drawLine(Color(0xFFFFD166), Offset(point.x, point.y - radius), Offset(point.x, point.y - radius * 0.64f), 2.2.dp.toPx(), StrokeCap.Square)
-        drawLine(Color(0xFFFFD166), Offset(point.x, point.y + radius * 0.64f), Offset(point.x, point.y + radius), 2.2.dp.toPx(), StrokeCap.Square)
+        drawLine(Color(0xFFFFD166), Offset(point.x - scaledRadius, point.y), Offset(point.x - scaledRadius * 0.64f, point.y), 2.2.dp.toPx(), StrokeCap.Square)
+        drawLine(Color(0xFFFFD166), Offset(point.x + scaledRadius * 0.64f, point.y), Offset(point.x + scaledRadius, point.y), 2.2.dp.toPx(), StrokeCap.Square)
+        drawLine(Color(0xFFFFD166), Offset(point.x, point.y - scaledRadius), Offset(point.x, point.y - scaledRadius * 0.64f), 2.2.dp.toPx(), StrokeCap.Square)
+        drawLine(Color(0xFFFFD166), Offset(point.x, point.y + scaledRadius * 0.64f), Offset(point.x, point.y + scaledRadius), 2.2.dp.toPx(), StrokeCap.Square)
     }
 }
 
@@ -1748,27 +1833,68 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
+/**
+ * Window rotation as observable state. Activity.onConfigurationChanged is NOT delivered for 0<->180 or
+ * 90<->270 flips (orientation bucket unchanged), so a DisplayListener is required.
+ */
 @Composable
-private fun rememberCameraControlRotationDegrees(): Float {
+private fun rememberDisplayRotation(): Int {
     val context = LocalContext.current
-    var rotation by remember { mutableFloatStateOf(0f) }
+    val view = LocalView.current
+    var rotation by remember { mutableIntStateOf(view.display?.rotation ?: AndroidSurface.ROTATION_0) }
+    DisposableEffect(context, view) {
+        val manager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = Unit
+            override fun onDisplayRemoved(displayId: Int) = Unit
+            override fun onDisplayChanged(displayId: Int) {
+                val display = view.display ?: return
+                if (display.displayId == displayId) rotation = display.rotation
+            }
+        }
+        manager.registerDisplayListener(listener, null)
+        view.display?.let { rotation = it.rotation }
+        onDispose { manager.unregisterDisplayListener(listener) }
+    }
+    return rotation
+}
+
+private data class CameraOrientationState(
+    val physicalRotation: UiRotation,
+    val relativeControlDegrees: Float,
+    val captureTargetRotation: Int,
+)
+
+@Composable
+private fun rememberCameraOrientationState(displayRotation: Int): CameraOrientationState {
+    val context = LocalContext.current
+    var pendingRotation by remember {
+        mutableStateOf(displayRotationToUiRotation(displayRotation))
+    }
+    var committedRotation by remember {
+        mutableStateOf(pendingRotation)
+    }
+    LaunchedEffect(pendingRotation) {
+        if (pendingRotation != committedRotation) {
+            delay(120)
+            committedRotation = pendingRotation
+            CameraEvidenceLogger.record(context, "ORIENTATION_COMMIT", "physical=$committedRotation display=$displayRotation")
+        }
+    }
     DisposableEffect(context) {
         val listener = object : OrientationEventListener(context.applicationContext) {
             override fun onOrientationChanged(orientation: Int) {
-                if (orientation == ORIENTATION_UNKNOWN) return
-                val snapped = when {
-                    orientation >= 315 || orientation < 45 -> 0f
-                    orientation < 135 -> -90f
-                    orientation < 225 -> 180f
-                    else -> 90f
-                }
-                if (rotation != snapped) rotation = snapped
+                pendingRotation = quantizedUiRotation(orientation, pendingRotation)
             }
         }
         if (listener.canDetectOrientation()) listener.enable()
         onDispose { listener.disable() }
     }
-    return rotation
+    return CameraOrientationState(
+        physicalRotation = committedRotation,
+        relativeControlDegrees = relativeControlRotationDegrees(committedRotation, displayRotation),
+        captureTargetRotation = committedRotation.toSurfaceRotation(),
+    )
 }
 
 private fun Activity.setScreenBrightness(value: Float) {

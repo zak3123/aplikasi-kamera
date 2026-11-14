@@ -3,6 +3,7 @@ package com.fatih.adaptivecompositioncamera.ui.camera
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.fatih.adaptivecompositioncamera.utility.AdaptiveLayout
+import kotlin.math.abs
 
 /** Shared camera chrome dimensions. Preview geometry is calculated separately from these tokens. */
 data class CameraUiTokenSet(
@@ -30,10 +31,10 @@ data class CameraUiTokenSet(
     val controlGap: Dp,
     val compactPadding: Dp,
     val portraitControlsHeight: Dp,
-    val landscapeCaptureRailWidth: Dp,
-    val landscapeModeRailWidth: Dp,
     val maximumPortraitControlsWidth: Dp,
     val maximumTabletControlsWidth: Dp,
+    /** Height of the landscape lens/zoom/mode strip; Pro controls stack above it. */
+    val landscapeStripHeight: Dp = 108.dp,
 )
 
 object CameraUiTokens {
@@ -62,8 +63,6 @@ object CameraUiTokens {
         controlGap = 10.dp,
         compactPadding = 10.dp,
         portraitControlsHeight = 218.dp,
-        landscapeCaptureRailWidth = 104.dp,
-        landscapeModeRailWidth = 64.dp,
         maximumPortraitControlsWidth = 620.dp,
         maximumTabletControlsWidth = 720.dp,
     )
@@ -123,18 +122,104 @@ object CameraUiTokens {
     val controlGap: Dp = active.controlGap
     val compactPadding: Dp = active.compactPadding
     val portraitControlsHeight: Dp = active.portraitControlsHeight
-    val landscapeCaptureRailWidth: Dp = active.landscapeCaptureRailWidth
-    val landscapeModeRailWidth: Dp = active.landscapeModeRailWidth
     val maximumPortraitControlsWidth: Dp = active.maximumPortraitControlsWidth
     val maximumTabletControlsWidth: Dp = active.maximumTabletControlsWidth
+    val landscapeStripHeight: Dp = active.landscapeStripHeight
 }
 
 data class CameraUiLayoutPolicy(
     val landscape: Boolean,
     val tablet: Boolean,
-    val captureRailWidth: Dp,
     val controlsMaximumWidth: Dp,
+    val captureRailWidth: Dp,
 )
+
+enum class UiRotation(val sensorCenterDegrees: Int) {
+    ROTATION_0(0),
+    ROTATION_90(90),
+    ROTATION_180(180),
+    ROTATION_270(270),
+}
+
+/**
+ * Physical sensor quadrant implied by a window rotation when auto-rotate is on.
+ * Display ROTATION_90 means the device was turned counter-clockwise, which OrientationEventListener reports as 270 (and vice versa).
+ */
+fun displayRotationToUiRotation(displayRotation: Int): UiRotation = when (displayRotation) {
+    1 -> UiRotation.ROTATION_270
+    2 -> UiRotation.ROTATION_180
+    3 -> UiRotation.ROTATION_90
+    else -> UiRotation.ROTATION_0
+}
+
+fun quantizedUiRotation(
+    orientationDegrees: Int,
+    previous: UiRotation,
+    hysteresisDegrees: Int = 12,
+): UiRotation {
+    if (orientationDegrees !in 0..359) return previous
+    val nearest = UiRotation.entries.minBy {
+        circularDistanceDegrees(orientationDegrees, it.sensorCenterDegrees)
+    }
+    if (nearest == previous) return previous
+    val enterThreshold = (45 - hysteresisDegrees).coerceIn(20, 45)
+    return if (circularDistanceDegrees(orientationDegrees, nearest.sensorCenterDegrees) <= enterThreshold) {
+        nearest
+    } else {
+        previous
+    }
+}
+
+fun UiRotation.toSurfaceRotation(): Int = when (this) {
+    UiRotation.ROTATION_0 -> 0
+    UiRotation.ROTATION_90 -> 3
+    UiRotation.ROTATION_180 -> 2
+    UiRotation.ROTATION_270 -> 1
+}
+
+/**
+ * Computes the icon/label rotation relative to the current window coordinate space.
+ * When Android has already rotated the Activity to match [physicalRotation], returns 0f
+ * so controls are never double-rotated.
+ */
+fun relativeControlRotationDegrees(
+    physicalRotation: UiRotation,
+    displayRotation: Int,
+): Float {
+    val physicalClockwise = physicalRotation.sensorCenterDegrees.toFloat()
+    val displayCompensationClockwise = when (displayRotation) {
+        1 -> 270f
+        2 -> 180f
+        3 -> 90f
+        else -> 0f
+    }
+    var delta = (displayCompensationClockwise - physicalClockwise) % 360f
+    if (delta <= -180f) delta += 360f
+    if (delta > 180f) delta -= 360f
+    return if (delta == -0f) 0f else delta
+}
+
+fun shortestRotationTarget(currentAngle: Float, targetAngle: Float): Float {
+    var delta = (targetAngle - currentAngle) % 360f
+    if (delta <= -180f) delta += 360f
+    if (delta > 180f) delta -= 360f
+    return currentAngle + delta
+}
+
+fun responsiveTokens(widthDp: Int, heightDp: Int): CameraUiTokenSet {
+    val shortSide = minOf(widthDp, heightDp)
+    return when {
+        shortSide >= 600 -> CameraUiTokens.tablet
+        shortSide <= 340 -> CameraUiTokens.compactPhone
+        shortSide >= 412 -> CameraUiTokens.largePhone
+        else -> CameraUiTokens.standardPhone
+    }
+}
+
+private fun circularDistanceDegrees(first: Int, second: Int): Int {
+    val diff = abs(first - second) % 360
+    return minOf(diff, 360 - diff)
+}
 
 enum class CameraTopControlSlot {
     Flash,
@@ -184,25 +269,25 @@ fun cameraUiLayoutPolicy(layout: AdaptiveLayout): CameraUiLayoutPolicy = when (l
     AdaptiveLayout.PhonePortrait -> CameraUiLayoutPolicy(
         landscape = false,
         tablet = false,
-        captureRailWidth = 0.dp,
         controlsMaximumWidth = CameraUiTokens.maximumPortraitControlsWidth,
+        captureRailWidth = 100.dp,
     )
     AdaptiveLayout.TabletPortrait -> CameraUiLayoutPolicy(
         landscape = false,
         tablet = true,
-        captureRailWidth = 0.dp,
         controlsMaximumWidth = CameraUiTokens.maximumTabletControlsWidth,
+        captureRailWidth = 112.dp,
     )
     AdaptiveLayout.PhoneLandscape -> CameraUiLayoutPolicy(
         landscape = true,
         tablet = false,
-        captureRailWidth = CameraUiTokens.landscapeCaptureRailWidth,
-        controlsMaximumWidth = CameraUiTokens.landscapeCaptureRailWidth,
+        controlsMaximumWidth = CameraUiTokens.maximumPortraitControlsWidth,
+        captureRailWidth = 100.dp,
     )
     AdaptiveLayout.TabletLandscape -> CameraUiLayoutPolicy(
         landscape = true,
         tablet = true,
-        captureRailWidth = CameraUiTokens.landscapeCaptureRailWidth,
-        controlsMaximumWidth = CameraUiTokens.landscapeCaptureRailWidth,
+        controlsMaximumWidth = CameraUiTokens.maximumTabletControlsWidth,
+        captureRailWidth = 112.dp,
     )
 }

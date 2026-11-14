@@ -19,7 +19,7 @@
         android:theme="@style/Theme.AdaptiveCompositionCamera">
         <activity
             android:name=".MainActivity"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density|fontScale|layoutDirection|locale|colorMode"
             android:exported="true"
             android:screenOrientation="fullSensor">
             <intent-filter>

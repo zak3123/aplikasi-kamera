@@ -94,6 +94,7 @@ internal class MaximumResolutionCamera2Capture(
         val supportedAeModes: Set<Int>,
         val supportedAfModes: Set<Int>,
         val supportedOisModes: Set<Int>,
+        val sensorPixelModeResultAvailable: Boolean,
         val requestOis: Boolean,
     ) {
         companion object {
@@ -117,8 +118,12 @@ internal class MaximumResolutionCamera2Capture(
                     CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES
                 ]?.toSet() ?: emptySet()
                 val requestKeys = characteristics.availableCaptureRequestKeys ?: emptyList()
+                val resultKeys = characteristics.availableCaptureResultKeys ?: emptyList()
                 val maximumMode = resolution.maximumSensorMode
                 if (maximumMode) {
+                    require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        "Maximum-resolution sensor mode requires Android 12 or newer."
+                    }
                     require(
                         CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR in capabilities,
                     ) {
@@ -154,7 +159,8 @@ internal class MaximumResolutionCamera2Capture(
                         "megapixels=${resolution.megapixels} maximumPixelMode=$maximumMode " +
                         "advertised=${advertised.joinToString { "${it.width}x${it.height}" }} " +
                         "requestedStabilization=${stabilization.name} supportedOis=$supportedOisModes " +
-                        "requestOis=$requestOis",
+                        "requestOis=$requestOis " +
+                        "pixelModeResultAvailable=${maximumMode && CaptureResult.SENSOR_PIXEL_MODE in resultKeys}",
                 )
                 return HighResolutionRequest(
                     cameraId = cameraId,
@@ -173,11 +179,46 @@ internal class MaximumResolutionCamera2Capture(
                         CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES
                     ]?.toSet() ?: emptySet(),
                     supportedOisModes = supportedOisModes,
+                    sensorPixelModeResultAvailable = maximumMode && CaptureResult.SENSOR_PIXEL_MODE in resultKeys,
                     requestOis = requestOis,
                 )
             }
         }
     }
+
+    private data class MaximumCaptureMetadata(
+        val frameNumber: Long,
+        val sensorTimestampNs: Long?,
+        val sensorPixelMode: Int?,
+        val requestedOis: Int?,
+        val resultOis: Int?,
+        val crop: String,
+        val aeState: Int?,
+        val afState: Int?,
+        val flashState: Int?,
+        val exposureNs: Long?,
+        val iso: Int?,
+    ) {
+        fun evidenceLine(): String = buildString {
+            append("frame=$frameNumber")
+            append(",sensorTimestampNs=$sensorTimestampNs")
+            append(",pixelMode=$sensorPixelMode")
+            append(",requestedOis=$requestedOis")
+            append(",resultOis=$resultOis")
+            append(",crop=$crop")
+            append(",aeState=$aeState")
+            append(",afState=$afState")
+            append(",flashState=$flashState")
+            append(",exposureNs=$exposureNs")
+            append(",iso=$iso")
+        }
+    }
+
+    private data class PendingJpeg(
+        val bytes: ByteArray,
+        val dimensions: Size,
+        val timestampNs: Long,
+    )
 
     private class CaptureOperation(
         private val context: Context,
@@ -187,7 +228,9 @@ internal class MaximumResolutionCamera2Capture(
         private val onFailure: (Throwable) -> Unit,
     ) {
         private val completed = AtomicBoolean(false)
-        private val captureMetadata = AtomicReference("CaptureResult pending")
+        private val finalizing = AtomicBoolean(false)
+        private val captureMetadata = AtomicReference<MaximumCaptureMetadata?>(null)
+        private val pendingJpeg = AtomicReference<PendingJpeg?>(null)
         private val thread = HandlerThread("AdaptiveCamera2-MaxJpeg").apply { start() }
         private val handler = Handler(thread.looper)
         private val executor = Executor(handler::post)
@@ -206,7 +249,6 @@ internal class MaximumResolutionCamera2Capture(
         fun start() {
             reader.setOnImageAvailableListener({ source ->
                 val image = source.acquireLatestImage() ?: return@setOnImageAvailableListener
-                val imageTimestamp = image.timestamp
                 val result = runCatching {
                     image.use { captured ->
                         val plane = captured.planes.firstOrNull()
@@ -218,18 +260,17 @@ internal class MaximumResolutionCamera2Capture(
                             "Camera2 returned ${dimensions.width}x${dimensions.height}; " +
                                 "requested ${request.resolution.width}x${request.resolution.height}."
                         }
-                        val uri = saveVerifiedJpeg(bytes, dimensions)
-                        CameraEvidenceLogger.record(
-                            context,
-                            "MAX_CAPTURE",
-                            "saved uri=$uri actual=${dimensions.width}x${dimensions.height} " +
-                                "bytes=${bytes.size} imageTimestampNs=$imageTimestamp " +
-                                "metadata=${captureMetadata.get()}",
+                        PendingJpeg(
+                            bytes = bytes,
+                            dimensions = dimensions,
+                            timestampNs = captured.timestamp,
                         )
-                        uri
                     }
                 }
-                result.onSuccess(::completeSuccess).onFailure(::completeFailure)
+                result.onSuccess {
+                    pendingJpeg.set(it)
+                    finalizeCaptureWhenReady()
+                }.onFailure(::completeFailure)
             }, handler)
 
             CameraEvidenceLogger.record(
@@ -271,9 +312,16 @@ internal class MaximumResolutionCamera2Capture(
         private fun configureSession(camera: CameraDevice) {
             runCatching {
                 val output = OutputConfiguration(reader.surface)
-                if (request.useMaximumSensorMode) {
+                if (request.useMaximumSensorMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     output.addSensorPixelModeUsed(CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION)
                 }
+                CameraEvidenceLogger.record(
+                    context,
+                    "MAX_CAPTURE_SESSION",
+                    "camera=${request.cameraId} surface=${request.resolution.width}x${request.resolution.height} " +
+                        "sensorPixelModeUsed=${if (request.useMaximumSensorMode) CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION else CameraMetadata.SENSOR_PIXEL_MODE_DEFAULT} " +
+                        "surfaces=1 video=false analysis=false extensions=false",
+                )
                 val configuration = SessionConfiguration(
                     SessionConfiguration.SESSION_REGULAR,
                     listOf(output),
@@ -285,6 +333,12 @@ internal class MaximumResolutionCamera2Capture(
                                 return
                             }
                             captureSession = session
+                            CameraEvidenceLogger.record(
+                                context,
+                                "MAX_CAPTURE_SESSION",
+                                "configured camera=${request.cameraId} stillOnly=true " +
+                                    "output=${request.resolution.width}x${request.resolution.height}",
+                            )
                             submitStillRequest(camera, session)
                         }
 
@@ -315,7 +369,7 @@ internal class MaximumResolutionCamera2Capture(
                     if (request.flashMode == FlashMode.Torch) {
                         set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH)
                     }
-                    if (request.useMaximumSensorMode) {
+                    if (request.useMaximumSensorMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         set(CaptureRequest.SENSOR_PIXEL_MODE, CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION)
                     }
                     if (request.supportedOisModes.isNotEmpty()) {
@@ -350,21 +404,26 @@ internal class MaximumResolutionCamera2Capture(
                 request: CaptureRequest,
                 result: TotalCaptureResult,
             ) {
-                val metadata = buildString {
-                    append("frame=${result.frameNumber}")
-                    append(",sensorTimestampNs=${result[CaptureResult.SENSOR_TIMESTAMP]}")
-                    append(",pixelMode=${result[CaptureResult.SENSOR_PIXEL_MODE]}")
-                    append(",requestedOis=${request[CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE]}")
-                    append(",resultOis=${result[CaptureResult.LENS_OPTICAL_STABILIZATION_MODE]}")
-                    append(",crop=${result[CaptureResult.SCALER_CROP_REGION]}")
-                    append(",aeState=${result[CaptureResult.CONTROL_AE_STATE]}")
-                    append(",afState=${result[CaptureResult.CONTROL_AF_STATE]}")
-                    append(",flashState=${result[CaptureResult.FLASH_STATE]}")
-                    append(",exposureNs=${result[CaptureResult.SENSOR_EXPOSURE_TIME]}")
-                    append(",iso=${result[CaptureResult.SENSOR_SENSITIVITY]}")
-                }
+                val metadata = MaximumCaptureMetadata(
+                    frameNumber = result.frameNumber,
+                    sensorTimestampNs = result[CaptureResult.SENSOR_TIMESTAMP],
+                    sensorPixelMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        result[CaptureResult.SENSOR_PIXEL_MODE]
+                    } else {
+                        null
+                    },
+                    requestedOis = request[CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE],
+                    resultOis = result[CaptureResult.LENS_OPTICAL_STABILIZATION_MODE],
+                    crop = result[CaptureResult.SCALER_CROP_REGION]?.toString() ?: "null",
+                    aeState = result[CaptureResult.CONTROL_AE_STATE],
+                    afState = result[CaptureResult.CONTROL_AF_STATE],
+                    flashState = result[CaptureResult.FLASH_STATE],
+                    exposureNs = result[CaptureResult.SENSOR_EXPOSURE_TIME],
+                    iso = result[CaptureResult.SENSOR_SENSITIVITY],
+                )
                 captureMetadata.set(metadata)
-                CameraEvidenceLogger.record(context, "MAX_CAPTURE_RESULT", metadata)
+                CameraEvidenceLogger.record(context, "MAX_CAPTURE_RESULT", metadata.evidenceLine())
+                finalizeCaptureWhenReady()
             }
 
             override fun onCaptureFailed(
@@ -446,6 +505,35 @@ internal class MaximumResolutionCamera2Capture(
                 resolver.delete(uri, null, null)
                 throw error
             }
+        }
+
+        private fun finalizeCaptureWhenReady() {
+            val jpeg = pendingJpeg.get() ?: return
+            val metadata = captureMetadata.get() ?: return
+            if (!finalizing.compareAndSet(false, true)) return
+            runCatching {
+                if (request.useMaximumSensorMode && request.sensorPixelModeResultAvailable) {
+                    require(
+                        metadata.sensorPixelMode == CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION,
+                    ) {
+                        "CaptureResult rejected maximum sensor pixel mode: ${metadata.sensorPixelMode}."
+                    }
+                }
+                val uri = saveVerifiedJpeg(jpeg.bytes, jpeg.dimensions)
+                val actualMegapixels =
+                    jpeg.dimensions.width.toLong() * jpeg.dimensions.height / 1_000_000.0
+                val timestampMatches = metadata.sensorTimestampNs == null ||
+                    metadata.sensorTimestampNs == jpeg.timestampNs
+                CameraEvidenceLogger.record(
+                    context,
+                    "MAX_CAPTURE",
+                    "saved uri=$uri actual=${jpeg.dimensions.width}x${jpeg.dimensions.height} " +
+                        "actualMp=${"%.2f".format(actualMegapixels)} bytes=${jpeg.bytes.size} " +
+                        "imageTimestampNs=${jpeg.timestampNs} timestampMatches=$timestampMatches " +
+                        "metadata=${metadata.evidenceLine()}",
+                )
+                uri
+            }.onSuccess(::completeSuccess).onFailure(::completeFailure)
         }
 
         private fun completeSuccess(uri: Uri) {
