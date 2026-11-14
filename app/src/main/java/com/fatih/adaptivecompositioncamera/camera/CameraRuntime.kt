@@ -49,6 +49,7 @@ import androidx.lifecycle.LifecycleOwner
 import com.fatih.adaptivecompositioncamera.capability.DefaultStabilizationResolver
 import com.fatih.adaptivecompositioncamera.capability.StabilizationDecision
 import com.fatih.adaptivecompositioncamera.domain.model.CameraMode
+import com.fatih.adaptivecompositioncamera.domain.model.isVideoMode
 import com.fatih.adaptivecompositioncamera.domain.model.CameraResolution
 import com.fatih.adaptivecompositioncamera.domain.model.CameraSessionState
 import com.fatih.adaptivecompositioncamera.domain.model.FlashMode
@@ -110,6 +111,16 @@ class CameraRuntime(
     private var activeCameraId: String? = null
     private var activeRequestedResolution: CameraResolution? = null
     private var activeMode: CameraMode = CameraMode.Photo
+
+    val isRecordingActive: Boolean
+        get() = recording != null
+
+    fun updateTargetRotation(targetRotation: Int) {
+        imageCapture?.targetRotation = targetRotation
+        if (recording == null) {
+            videoCapture?.targetRotation = targetRotation
+        }
+    }
 
     @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
     fun bind(
@@ -253,6 +264,12 @@ class CameraRuntime(
                     )
                     imageCapture = null
                     videoCapture = requestedVideo
+                    applyRuntimeStabilizationRequest(
+                        boundCamera = camera,
+                        mode = mode,
+                        stabilizationDecision = stabilizationDecision,
+                        fpsRange = videoFpsRange,
+                    )
                 } else {
                     camera = bindUseCases(
                         cameraProvider, lifecycleOwner, selector, preview, requestedCapture,
@@ -260,6 +277,12 @@ class CameraRuntime(
                     )
                     imageCapture = requestedCapture
                     videoCapture = null
+                    applyRuntimeStabilizationRequest(
+                        boundCamera = camera,
+                        mode = mode,
+                        stabilizationDecision = stabilizationDecision,
+                        fpsRange = null,
+                    )
                 }
                 completeBind(
                     targetRotation = targetRotation,
@@ -275,7 +298,14 @@ class CameraRuntime(
                     fail(
                         "Video configuration ${selectedVideoQuality.label()} " +
                             "${videoFpsRange?.label.orEmpty()} with ${requestedStabilization.label()} was rejected. " +
-                            "Choose a lower quality or disable stabilization.",
+                        "Choose a lower quality or disable stabilization.",
+                        onError,
+                    )
+                } else if (mode == CameraMode.MaximumResolution) {
+                    fail(
+                        "Ultra HD ${resolution?.width}x${resolution?.height} was rejected by Android. " +
+                            "Capture was stopped; the app will not silently fall back to a lower resolution. " +
+                            requestedFailure.message.orEmpty(),
                         onError,
                     )
                 } else bindSafePhotoFallback(
@@ -482,6 +512,83 @@ class CameraRuntime(
         applyStillOptions(Camera2Interop.Extender(previewBuilder))
         applyStillOptions(Camera2Interop.Extender(captureBuilder))
         Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(monitor)
+    }
+
+    @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
+    private fun applyRuntimeStabilizationRequest(
+        boundCamera: Camera?,
+        mode: CameraMode,
+        stabilizationDecision: StabilizationDecision,
+        fpsRange: VideoFpsRange?,
+    ) {
+        val cameraControl = boundCamera?.cameraControl ?: return
+        val plan = stabilizationDecision.requestPlan
+        val options = CaptureRequestOptions.Builder().apply {
+            fpsRange?.let {
+                setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(it.min, it.max))
+            }
+            if (mode.isVideoMode) {
+                val eisMode = when {
+                    plan.requestPreviewStabilization && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                        CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION
+                    plan.requestStandardEis ->
+                        CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON
+                    else ->
+                        CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+                }
+                setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, eisMode)
+            } else {
+                setCaptureRequestOption(
+                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                    CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
+                )
+            }
+            setCaptureRequestOption(
+                CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                if (plan.requestOis) {
+                    CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON
+                } else {
+                    CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_OFF
+                },
+            )
+        }.build()
+        val requestSummary = buildString {
+            append("mode=$mode effective=${stabilizationDecision.effective.name} ")
+            append("plan=${plan.evidenceLabel} fps=${fpsRange?.label ?: "camera-managed"} ")
+            append("requestOis=${plan.requestOis} requestEis=${plan.requestStandardEis} ")
+            append("requestPreview=${plan.requestPreviewStabilization}")
+        }
+        CameraEvidenceLogger.record(context, "STABILIZATION_RUNTIME_APPLY", requestSummary)
+        runCatching {
+            Camera2CameraControl.from(cameraControl).setCaptureRequestOptions(options)
+        }.onSuccess { future ->
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess {
+                            CameraEvidenceLogger.record(
+                                context,
+                                "STABILIZATION_RUNTIME_APPLY",
+                                "accepted $requestSummary",
+                            )
+                        }
+                        .onFailure {
+                            CameraEvidenceLogger.record(
+                                context,
+                                "STABILIZATION_RUNTIME_APPLY_ERROR",
+                                "camera-control rejected $requestSummary error=${it.message}",
+                            )
+                        }
+                },
+                mainExecutor,
+            )
+        }.onFailure {
+            CameraEvidenceLogger.record(
+                context,
+                "STABILIZATION_RUNTIME_APPLY_ERROR",
+                "unable to submit $requestSummary error=${it.message}",
+            )
+        }
     }
 
     private data class StabilizationFrameEvidence(
@@ -854,6 +961,7 @@ class CameraRuntime(
             when (event) {
                 is VideoRecordEvent.Start -> _state.value = CameraSessionState.Recording(System.currentTimeMillis())
                 is VideoRecordEvent.Finalize -> {
+                    recording = null
                     _state.value = if (event.hasError()) {
                         CameraSessionState.Error("Video recording failed with error ${event.error}.")
                     } else readyStateFor(activeMode)

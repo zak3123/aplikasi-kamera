@@ -30,14 +30,21 @@ import com.fatih.adaptivecompositioncamera.ui.camera.professionalGuideCatalog
 import com.fatih.adaptivecompositioncamera.ui.camera.CameraUiTokens
 import com.fatih.adaptivecompositioncamera.ui.camera.CameraTopControlSlot
 import com.fatih.adaptivecompositioncamera.ui.camera.cameraUiLayoutPolicy
+import com.fatih.adaptivecompositioncamera.ui.camera.displayRotationToUiRotation
 import com.fatih.adaptivecompositioncamera.ui.camera.documentAnalysisResolutionKey
 import com.fatih.adaptivecompositioncamera.ui.camera.exposureControlGeometry
 import com.fatih.adaptivecompositioncamera.ui.camera.exposureEvLabel
 import com.fatih.adaptivecompositioncamera.ui.camera.friendlyTopMegapixelLabel
 import com.fatih.adaptivecompositioncamera.ui.camera.modeResolutionKey
+import com.fatih.adaptivecompositioncamera.ui.camera.quantizedUiRotation
+import com.fatih.adaptivecompositioncamera.ui.camera.relativeControlRotationDegrees
+import com.fatih.adaptivecompositioncamera.ui.camera.responsiveTokens
+import com.fatih.adaptivecompositioncamera.ui.camera.shortestRotationTarget
+import com.fatih.adaptivecompositioncamera.ui.camera.toSurfaceRotation
 import com.fatih.adaptivecompositioncamera.ui.camera.label
 import com.fatih.adaptivecompositioncamera.ui.camera.stabilizationAcceptedShortLabel
 import com.fatih.adaptivecompositioncamera.ui.camera.topControlCapacity
+import com.fatih.adaptivecompositioncamera.ui.camera.UiRotation
 import com.fatih.adaptivecompositioncamera.ui.camera.visibleTopControlSlots
 import com.fatih.adaptivecompositioncamera.composition.goldenSpiralGuideViewport
 import com.fatih.adaptivecompositioncamera.composition.perspectiveEdgePoints
@@ -409,10 +416,54 @@ class CameraMathTest {
     }
 
     @Test
+    fun uiRotationUsesHysteresisAroundQuadrants() {
+        assertEquals(UiRotation.ROTATION_0, displayRotationToUiRotation(0))
+        assertEquals(UiRotation.ROTATION_90, displayRotationToUiRotation(1))
+        assertEquals(UiRotation.ROTATION_180, displayRotationToUiRotation(2))
+        assertEquals(UiRotation.ROTATION_270, displayRotationToUiRotation(3))
+
+        assertEquals(UiRotation.ROTATION_0, quantizedUiRotation(50, UiRotation.ROTATION_0))
+        assertEquals(UiRotation.ROTATION_90, quantizedUiRotation(60, UiRotation.ROTATION_0))
+        assertEquals(UiRotation.ROTATION_90, quantizedUiRotation(130, UiRotation.ROTATION_90))
+        assertEquals(UiRotation.ROTATION_180, quantizedUiRotation(150, UiRotation.ROTATION_90))
+        assertEquals(UiRotation.ROTATION_180, quantizedUiRotation(-1, UiRotation.ROTATION_180))
+    }
+
+    @Test
+    fun relativeControlRotationPreventsDoubleRotationAndHandlesShortestPath() {
+        // Auto-rotate ON: display rotation compensates physical orientation -> 0f relative
+        assertEquals(0f, relativeControlRotationDegrees(UiRotation.ROTATION_0, 0), 0.01f)
+        assertEquals(0f, relativeControlRotationDegrees(UiRotation.ROTATION_270, 1), 0.01f)
+        assertEquals(0f, relativeControlRotationDegrees(UiRotation.ROTATION_180, 2), 0.01f)
+        assertEquals(0f, relativeControlRotationDegrees(UiRotation.ROTATION_90, 3), 0.01f)
+
+        // Auto-rotate OFF (display stays at 0): icons counter-rotate to stay upright
+        assertEquals(-90f, relativeControlRotationDegrees(UiRotation.ROTATION_90, 0), 0.01f)
+        assertEquals(180f, relativeControlRotationDegrees(UiRotation.ROTATION_180, 0), 0.01f)
+        assertEquals(90f, relativeControlRotationDegrees(UiRotation.ROTATION_270, 0), 0.01f)
+
+        // Shortest-path angle interpolation
+        assertEquals(180f, shortestRotationTarget(90f, 180f), 0.01f)
+        assertEquals(270f, shortestRotationTarget(180f, -90f), 0.01f)
+        assertEquals(0, UiRotation.ROTATION_0.toSurfaceRotation())
+        assertEquals(1, UiRotation.ROTATION_270.toSurfaceRotation())
+        assertEquals(2, UiRotation.ROTATION_180.toSurfaceRotation())
+        assertEquals(3, UiRotation.ROTATION_90.toSurfaceRotation())
+    }
+
+    @Test
+    fun responsiveTokensScaleAcrossDeviceSizes() {
+        assertEquals(CameraUiTokens.compactPhone, responsiveTokens(320, 568))
+        assertEquals(CameraUiTokens.standardPhone, responsiveTokens(393, 873))
+        assertEquals(CameraUiTokens.largePhone, responsiveTokens(430, 932))
+        assertEquals(CameraUiTokens.tablet, responsiveTokens(800, 1280))
+    }
+
+    @Test
     fun stockCameraChromeStaysWithinCompactPhoneGuidance() {
+        val portrait = cameraUiLayoutPolicy(AdaptiveLayout.PhonePortrait)
         val landscape = cameraUiLayoutPolicy(AdaptiveLayout.PhoneLandscape)
-        assertEquals(104f, landscape.captureRailWidth.value, 0f)
-        assertTrue(landscape.captureRailWidth.value <= 800f * 0.25f)
+        assertEquals(portrait.controlsMaximumWidth, landscape.controlsMaximumWidth)
         assertTrue(CameraUiTokens.minimumTouchTarget.value >= 52f)
         assertTrue(CameraUiTokens.topVisualSize.value in 40f..44f)
         assertEquals(CameraUiTokens.topVisualSize, CameraUiTokens.standardPhone.topVisualSize)
@@ -454,7 +505,17 @@ class CameraMathTest {
             Paths.get("app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraScreen.kt"),
             Paths.get("src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraScreen.kt"),
         ).first { Files.exists(it) }
+        val chrome = listOf(
+            Paths.get("app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/PocoStyleCameraChrome.kt"),
+            Paths.get("src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/PocoStyleCameraChrome.kt"),
+        ).first { Files.exists(it) }
+        val layout = listOf(
+            Paths.get("app/src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraUiLayout.kt"),
+            Paths.get("src/main/java/com/fatih/adaptivecompositioncamera/ui/camera/CameraUiLayout.kt"),
+        ).first { Files.exists(it) }
         val source = String(Files.readAllBytes(cameraScreen))
+        val chromeSource = String(Files.readAllBytes(chrome))
+        val layoutSource = String(Files.readAllBytes(layout))
         listOf(
             "CameraTopBar",
             "CameraBottomControls",
@@ -478,6 +539,10 @@ class CameraMathTest {
         assertTrue(source.contains("PocoStyleShutterControls"))
         assertTrue(source.contains("PocoStyleProControls"))
         assertTrue(source.contains("PocoExposureControl"))
+        assertFalse(chromeSource.contains("PocoLandscapeActiveModeChip"))
+        assertFalse(chromeSource.contains("PocoCompactLensSelector"))
+        assertFalse(layoutSource.contains("landscapeCaptureRailWidth"))
+        assertFalse(layoutSource.contains("landscapeModeRailWidth"))
     }
 
     @Test
