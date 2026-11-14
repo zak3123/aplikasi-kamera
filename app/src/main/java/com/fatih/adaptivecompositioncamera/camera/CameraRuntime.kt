@@ -112,14 +112,29 @@ class CameraRuntime(
     private var activeRequestedResolution: CameraResolution? = null
     private var activeMode: CameraMode = CameraMode.Photo
 
+    /** Latest device-orientation rotation for output (ImageCapture/VideoCapture). Applied at bind and at recording start. */
+    private var latestCaptureRotation = 0
+    private var latestDisplayRotation = 0
+
     val isRecordingActive: Boolean
         get() = recording != null
 
+    /**
+     * Output rotation follows the physical device orientation, not the window.
+     * VideoCapture is deliberately untouched while recording; [startVideo] applies the latest value to the next recording.
+     */
     fun updateTargetRotation(targetRotation: Int) {
+        latestCaptureRotation = targetRotation
         imageCapture?.targetRotation = targetRotation
         if (recording == null) {
             videoCapture?.targetRotation = targetRotation
         }
+    }
+
+    /** Preview rotation follows the window/display so the viewfinder matches the screen without a rebind. */
+    fun updateDisplayRotation(displayRotation: Int) {
+        latestDisplayRotation = displayRotation
+        previewUseCase?.targetRotation = displayRotation
     }
 
     @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
@@ -133,6 +148,7 @@ class CameraRuntime(
         viewportWidth: Int,
         viewportHeight: Int,
         targetRotation: Int,
+        displayRotation: Int,
         matchPreviewCrop: Boolean,
         videoQuality: VideoQualitySetting = VideoQualitySetting.Auto,
         videoFpsRange: VideoFpsRange? = null,
@@ -146,12 +162,14 @@ class CameraRuntime(
         activeCameraId = cameraId
         activeRequestedResolution = resolution
         activeMode = mode
+        latestCaptureRotation = targetRotation
+        latestDisplayRotation = displayRotation
         CameraEvidenceLogger.record(
             context,
             "CAMERAX_BIND",
             "generation=$generation camera=$cameraId mode=$mode requested=" +
                 resolution?.let { "${it.width}x${it.height}/${it.id}" }.orEmpty() +
-                " viewport=${viewportWidth}x$viewportHeight rotation=$targetRotation " +
+                " viewport=${viewportWidth}x$viewportHeight captureRotation=$targetRotation displayRotation=$displayRotation " +
                 "matchPreviewCrop=$matchPreviewCrop videoQuality=${videoQuality.name} " +
                 "fps=${videoFpsRange?.label ?: "camera-managed"} stabilization=${videoStabilization.name}",
         )
@@ -197,7 +215,7 @@ class CameraRuntime(
                         "${selectedVideoQuality.label()} was selected; no recording has started.",
                 )
             }
-            val previewBuilder = Preview.Builder().setTargetRotation(targetRotation)
+            val previewBuilder = Preview.Builder().setTargetRotation(displayRotation)
             if (mode == CameraMode.Video) {
                 configureVideoRequest(
                     previewBuilder = previewBuilder,
@@ -260,7 +278,7 @@ class CameraRuntime(
                 if (mode == CameraMode.Video) {
                     camera = bindUseCases(
                         cameraProvider, lifecycleOwner, selector, preview, requestedVideo,
-                        viewportWidth, viewportHeight, targetRotation, matchPreviewCrop,
+                        viewportWidth, viewportHeight, displayRotation, matchPreviewCrop,
                     )
                     imageCapture = null
                     videoCapture = requestedVideo
@@ -273,7 +291,7 @@ class CameraRuntime(
                 } else {
                     camera = bindUseCases(
                         cameraProvider, lifecycleOwner, selector, preview, requestedCapture,
-                        viewportWidth, viewportHeight, targetRotation, matchPreviewCrop,
+                        viewportWidth, viewportHeight, displayRotation, matchPreviewCrop,
                     )
                     imageCapture = requestedCapture
                     videoCapture = null
@@ -284,6 +302,10 @@ class CameraRuntime(
                         fpsRange = null,
                     )
                 }
+                // Rotation may have changed while the async provider future was pending.
+                previewUseCase?.targetRotation = latestDisplayRotation
+                imageCapture?.targetRotation = latestCaptureRotation
+                videoCapture?.targetRotation = latestCaptureRotation
                 completeBind(
                     targetRotation = targetRotation,
                     sensorPixelMode = when {
@@ -317,6 +339,7 @@ class CameraRuntime(
                     viewportWidth = viewportWidth,
                     viewportHeight = viewportHeight,
                     targetRotation = targetRotation,
+                    displayRotation = displayRotation,
                     matchPreviewCrop = matchPreviewCrop,
                     onBound = onBound,
                     onError = onError,
@@ -334,6 +357,7 @@ class CameraRuntime(
         viewportWidth: Int,
         viewportHeight: Int,
         targetRotation: Int,
+        displayRotation: Int,
         matchPreviewCrop: Boolean,
         onBound: (RuntimeCameraInfo) -> Unit,
         onError: (String) -> Unit,
@@ -346,7 +370,7 @@ class CameraRuntime(
                 .build()
             camera = bindUseCases(
                 cameraProvider, lifecycleOwner, selector, preview, safeCapture,
-                viewportWidth, viewportHeight, targetRotation, matchPreviewCrop,
+                viewportWidth, viewportHeight, displayRotation, matchPreviewCrop,
             )
             imageCapture = safeCapture
             videoCapture = null
@@ -957,11 +981,15 @@ class CameraRuntime(
         val canUseAudio = audioEnabled &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         if (canUseAudio) pending = pending.withAudioEnabled()
-        recording = pending.start(mainExecutor) { event ->
+        // Rotation changes during a previous recording were deferred; apply the newest value now.
+        capture.targetRotation = latestCaptureRotation
+        var started: Recording? = null
+        started = pending.start(mainExecutor) { event ->
             when (event) {
                 is VideoRecordEvent.Start -> _state.value = CameraSessionState.Recording(System.currentTimeMillis())
                 is VideoRecordEvent.Finalize -> {
-                    recording = null
+                    // Identity check: a late callback must never clear a newer recording.
+                    if (recording === started) recording = null
                     _state.value = if (event.hasError()) {
                         CameraSessionState.Error("Video recording failed with error ${event.error}.")
                     } else readyStateFor(activeMode)
@@ -971,9 +999,12 @@ class CameraRuntime(
             trySend(event)
             if (event is VideoRecordEvent.Finalize) close()
         }
+        recording = started
         awaitClose {
-            recording?.close()
-            recording = null
+            if (recording === started) {
+                started?.close()
+                recording = null
+            }
         }
     }
 

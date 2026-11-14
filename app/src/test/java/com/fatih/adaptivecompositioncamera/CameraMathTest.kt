@@ -418,9 +418,10 @@ class CameraMathTest {
     @Test
     fun uiRotationUsesHysteresisAroundQuadrants() {
         assertEquals(UiRotation.ROTATION_0, displayRotationToUiRotation(0))
-        assertEquals(UiRotation.ROTATION_90, displayRotationToUiRotation(1))
+        // Window ROTATION_90 == device turned counter-clockwise == sensor quadrant 270 (and vice versa).
+        assertEquals(UiRotation.ROTATION_270, displayRotationToUiRotation(1))
         assertEquals(UiRotation.ROTATION_180, displayRotationToUiRotation(2))
-        assertEquals(UiRotation.ROTATION_270, displayRotationToUiRotation(3))
+        assertEquals(UiRotation.ROTATION_90, displayRotationToUiRotation(3))
 
         assertEquals(UiRotation.ROTATION_0, quantizedUiRotation(50, UiRotation.ROTATION_0))
         assertEquals(UiRotation.ROTATION_90, quantizedUiRotation(60, UiRotation.ROTATION_0))

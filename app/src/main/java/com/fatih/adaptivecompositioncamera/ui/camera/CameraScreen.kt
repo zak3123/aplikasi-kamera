@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.hardware.camera2.CameraMetadata
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -113,7 +114,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.fatih.adaptivecompositioncamera.camera.CameraEvidenceLogger
 import com.fatih.adaptivecompositioncamera.camera.CameraRuntime
+import com.fatih.adaptivecompositioncamera.camera.RebindGate
 import com.fatih.adaptivecompositioncamera.capability.CameraConfigurationResolver
 import com.fatih.adaptivecompositioncamera.capability.DefaultStabilizationResolver
 import com.fatih.adaptivecompositioncamera.capability.ModeConflictResolver
@@ -193,9 +196,8 @@ fun CameraScreen(
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
-    val orientationState = rememberCameraOrientationState(
-        displayRotation = localView.display?.rotation ?: AndroidSurface.ROTATION_0,
-    )
+    val displayRotation = rememberDisplayRotation()
+    val orientationState = rememberCameraOrientationState(displayRotation = displayRotation)
     var animatedControlRotationTarget by remember { mutableFloatStateOf(orientationState.relativeControlDegrees) }
     LaunchedEffect(orientationState.relativeControlDegrees) {
         animatedControlRotationTarget = shortestRotationTarget(
@@ -316,7 +318,7 @@ fun CameraScreen(
     var showExposure by remember { mutableStateOf(false) }
     var isRecording by remember { mutableStateOf(false) }
     var isRecordingPaused by remember { mutableStateOf(false) }
-    var pendingRebindAfterRecording by remember { mutableStateOf(false) }
+    val rebindGate = remember { RebindGate() }
     var recordingSeconds by remember { mutableIntStateOf(0) }
     var flashVisible by remember { mutableStateOf(false) }
     var captureEffectVisible by remember { mutableStateOf(false) }
@@ -546,6 +548,10 @@ fun CameraScreen(
     LaunchedEffect(orientationState.captureTargetRotation) {
         runtime.updateTargetRotation(orientationState.captureTargetRotation)
     }
+    LaunchedEffect(displayRotation) {
+        runtime.updateDisplayRotation(displayRotation)
+        CameraEvidenceLogger.record(context, "DISPLAY_ROTATION", "display=$displayRotation recording=${runtime.isRecordingActive}")
+    }
 
     val previewReady = previewSize.width > 0 && previewSize.height > 0
     val isLandscapeConfig = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -566,8 +572,8 @@ fun CameraScreen(
     ) {
         val view = previewView ?: return@LaunchedEffect
         if (!previewReady) return@LaunchedEffect
-        if (isRecording || runtime.isRecordingActive) {
-            pendingRebindAfterRecording = true
+        if (!rebindGate.request(recordingActive = isRecording || runtime.isRecordingActive)) {
+            CameraEvidenceLogger.record(context, "REBIND_DEFERRED", "recording active; rebind replays after Finalize")
             return@LaunchedEffect
         }
         val viewport = captureViewportSize.takeIf { it.width > 0 && it.height > 0 } ?: previewSize
@@ -586,6 +592,7 @@ fun CameraScreen(
             viewportWidth = viewport.width,
             viewportHeight = viewport.height,
             targetRotation = orientationState.captureTargetRotation,
+            displayRotation = displayRotation,
             matchPreviewCrop = settings.matchPreviewCrop,
             videoQuality = videoQuality,
             videoFpsRange = videoFpsRange,
@@ -833,6 +840,7 @@ fun CameraScreen(
             runtime.startVideo(settings.audioEnabled)
                 .catch {
                     isRecording = false
+                    if (rebindGate.onRecordingEnded()) cameraRebindToken++
                     lastRecordingError = it.message ?: "Video recording failed."
                     onMessage(lastRecordingError!!)
                 }
@@ -840,10 +848,7 @@ fun CameraScreen(
                     if (event is VideoRecordEvent.Finalize) {
                         isRecording = false
                         isRecordingPaused = false
-                        if (pendingRebindAfterRecording) {
-                            pendingRebindAfterRecording = false
-                            cameraRebindToken++
-                        }
+                        if (rebindGate.onRecordingEnded()) cameraRebindToken++
                         if (event.hasError()) {
                             lastRecordingError = "Recording failed with error ${event.error}."
                             onMessage(lastRecordingError!!)
@@ -1201,7 +1206,7 @@ fun CameraScreen(
                             start = 12.dp,
                             top = 0.dp,
                             end = policy.captureRailWidth + 12.dp,
-                            bottom = 76.dp,
+                            bottom = CameraUiTokens.landscapeStripHeight + 4.dp,
                         )
                         .widthIn(max = 620.dp)
                 } else {
@@ -1238,7 +1243,7 @@ fun CameraScreen(
                 onToggleZoomSlider = { showZoomSlider = !showZoomSlider },
                 onZoom = { zoom = runtime.zoomTo(it) },
                 onCamera = { camera ->
-                    if (!captureInProgress) {
+                    if (!captureInProgress && !isRecording) {
                         activeCameraId = camera.cameraId
                         onCameraChange(camera.cameraId)
                         zoom = 1f
@@ -1254,8 +1259,10 @@ fun CameraScreen(
 
         PocoStyleShutterControls(
             modifier = if (policy.landscape) {
-                Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(policy.captureRailWidth)
+                // Insets outside the fixed-width rail so a cutout/nav bar never squeezes the buttons.
+                Modifier.align(Alignment.CenterEnd)
                     .navigationBarsPadding().displayCutoutPadding()
+                    .fillMaxHeight().width(policy.captureRailWidth)
             } else {
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .widthIn(max = policy.controlsMaximumWidth)
@@ -1293,7 +1300,7 @@ fun CameraScreen(
                 showExposure = false
             },
             onCamera = { camera ->
-                if (!captureInProgress) {
+                if (!captureInProgress && !isRecording) {
                     activeCameraId = camera.cameraId
                     onCameraChange(camera.cameraId)
                     zoom = 1f
@@ -1600,15 +1607,11 @@ internal fun friendlyTopMegapixelLabel(megapixels: Double): String {
 @Composable
 private fun FocusIndicator(point: Offset, modifier: Modifier = Modifier) {
     val radius = with(LocalDensity.current) { (CameraUiTokens.focusRingDiameter / 2).toPx() }
-    var settled by remember(point) { mutableStateOf(false) }
-    LaunchedEffect(point) { settled = true }
-    val scale by animateFloatAsState(
-        targetValue = if (settled) 1f else 1.28f,
-        animationSpec = androidx.compose.animation.core.tween(180),
-        label = "focus-ring-scale",
-    )
+    // New Animatable per tap point: ring always starts large and settles, never replays from a stale value.
+    val scale = remember(point) { androidx.compose.animation.core.Animatable(1.28f) }
+    LaunchedEffect(point) { scale.animateTo(1f, androidx.compose.animation.core.tween(180)) }
     Canvas(modifier) {
-        val scaledRadius = radius * scale
+        val scaledRadius = radius * scale.value
         drawCircle(
             Color(0xFFFFD166),
             radius = scaledRadius,
@@ -1830,6 +1833,32 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
+/**
+ * Window rotation as observable state. Activity.onConfigurationChanged is NOT delivered for 0<->180 or
+ * 90<->270 flips (orientation bucket unchanged), so a DisplayListener is required.
+ */
+@Composable
+private fun rememberDisplayRotation(): Int {
+    val context = LocalContext.current
+    val view = LocalView.current
+    var rotation by remember { mutableIntStateOf(view.display?.rotation ?: AndroidSurface.ROTATION_0) }
+    DisposableEffect(context, view) {
+        val manager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = Unit
+            override fun onDisplayRemoved(displayId: Int) = Unit
+            override fun onDisplayChanged(displayId: Int) {
+                val display = view.display ?: return
+                if (display.displayId == displayId) rotation = display.rotation
+            }
+        }
+        manager.registerDisplayListener(listener, null)
+        view.display?.let { rotation = it.rotation }
+        onDispose { manager.unregisterDisplayListener(listener) }
+    }
+    return rotation
+}
+
 private data class CameraOrientationState(
     val physicalRotation: UiRotation,
     val relativeControlDegrees: Float,
@@ -1849,6 +1878,7 @@ private fun rememberCameraOrientationState(displayRotation: Int): CameraOrientat
         if (pendingRotation != committedRotation) {
             delay(120)
             committedRotation = pendingRotation
+            CameraEvidenceLogger.record(context, "ORIENTATION_COMMIT", "physical=$committedRotation display=$displayRotation")
         }
     }
     DisposableEffect(context) {

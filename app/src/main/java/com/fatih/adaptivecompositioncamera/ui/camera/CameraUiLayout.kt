@@ -33,6 +33,8 @@ data class CameraUiTokenSet(
     val portraitControlsHeight: Dp,
     val maximumPortraitControlsWidth: Dp,
     val maximumTabletControlsWidth: Dp,
+    /** Height of the landscape lens/zoom/mode strip; Pro controls stack above it. */
+    val landscapeStripHeight: Dp = 108.dp,
 )
 
 object CameraUiTokens {
@@ -122,6 +124,7 @@ object CameraUiTokens {
     val portraitControlsHeight: Dp = active.portraitControlsHeight
     val maximumPortraitControlsWidth: Dp = active.maximumPortraitControlsWidth
     val maximumTabletControlsWidth: Dp = active.maximumTabletControlsWidth
+    val landscapeStripHeight: Dp = active.landscapeStripHeight
 }
 
 data class CameraUiLayoutPolicy(
@@ -131,17 +134,21 @@ data class CameraUiLayoutPolicy(
     val captureRailWidth: Dp,
 )
 
-enum class UiRotation(val sensorCenterDegrees: Int, val controlDegrees: Float) {
-    ROTATION_0(0, 0f),
-    ROTATION_90(90, -90f),
-    ROTATION_180(180, 180f),
-    ROTATION_270(270, 90f),
+enum class UiRotation(val sensorCenterDegrees: Int) {
+    ROTATION_0(0),
+    ROTATION_90(90),
+    ROTATION_180(180),
+    ROTATION_270(270),
 }
 
+/**
+ * Physical sensor quadrant implied by a window rotation when auto-rotate is on.
+ * Display ROTATION_90 means the device was turned counter-clockwise, which OrientationEventListener reports as 270 (and vice versa).
+ */
 fun displayRotationToUiRotation(displayRotation: Int): UiRotation = when (displayRotation) {
-    1 -> UiRotation.ROTATION_90
+    1 -> UiRotation.ROTATION_270
     2 -> UiRotation.ROTATION_180
-    3 -> UiRotation.ROTATION_270
+    3 -> UiRotation.ROTATION_90
     else -> UiRotation.ROTATION_0
 }
 

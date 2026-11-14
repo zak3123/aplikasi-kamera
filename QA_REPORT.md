@@ -2,14 +2,15 @@
 
 - **Branch**: `fix/native-camera-ui-orientation`
 - **Environment**: Windows 10, JDK 17.0.19, Gradle 8.14.3, Android `compileSdk = 36`, `targetSdk = 36`, `minSdk = 24`
-- **Device / Emulator**: None attached (`adb devices -l` = 0 devices; `emulator.exe` not installed in `D:\AndroidSdk`). All on-device runtime/camera tests are marked `BLOCKED` (`NEEDS_DEVICE_VERIFICATION`).
+- **Device / Emulator**: None attached (`adb devices -l` = 0 devices; `emulator.exe` not installed in `D:\AndroidSdk`). All on-device runtime/camera tests are marked `BLOCKED` (`NEEDS_DEVICE_VERIFICATION`). Follow [`MANUAL_DEVICE_TEST_GUIDE.md`](MANUAL_DEVICE_TEST_GUIDE.md) to execute physical-device QA with `AdaptiveCameraEvidence` logcat capture.
 
 ## Acceptance Test Matrix
 
 | ID | Skenario | Status | Catatan & Bukti |
 |---|---|---|---|
-| BUILD-01 | `./gradlew.bat :app:assembleDebug` | **PASS** | Exit 0. Output: `app/build/outputs/apk/debug/app-debug.apk` (25,205,155 bytes). |
-| BUILD-02 | `:app:lintDebug` & `:app:testDebugUnitTest` | **PASS** | `CameraMathTest`: 52 tests, 0 failures, 0 errors, 0 skipped. `:app:lintDebug` exit 0 (`app/build/reports/lint-results-debug.html`). |
+| BUILD-01 | `./gradlew.bat :app:assembleDebug` | **PASS** | Exit 0. Output: `app/build/outputs/apk/debug/app-debug.apk` (24,937,157 bytes). |
+| BUILD-02 | `:app:lintDebug` & `:app:testDebugUnitTest` | **PASS** | 70 unit tests PASS (`CameraMathTest`: 52 PASS, `OrientationStabilityTest`: 18 PASS; 0 failures, 0 errors, 0 skipped). `:app:lintDebug` exit 0, 0 errors (`app/build/reports/lint-results-debug.html`). |
+| BUILD-03 | `./gradlew.bat :app:assembleDebugAndroidTest` | **PASS (Compile Only)** / **BLOCKED (Run)** | Output: `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` (1,122,764 bytes) berisi `ShutterControlsUiTest` (8 Compose UI tests) & `OrientationActivityTest` (20× rotation recreation guard test). Eksekusi di perangkat `NEEDS_DEVICE_VERIFICATION`. |
 | REG-01 | Audit fitur lama setelah migrasi UI | **PASS** (Static/Unit) | Seluruh mode (`Photo`, `Portrait`, `Video`, `Pro`, `Documents`, `Night`, `MaximumResolution`, `SlowMotion`, `HighFrameRate`, `TimeLapse`, `Burst`, `PanoramaExperimental`), 14 composition guides, stabilization selector, Pro controls, sheets, settings, diagnostics, media viewer, volume shutter dipertahankan. |
 | CAM-01 | Jalankan aplikasi & izinkan kamera | **BLOCKED** | `NEEDS_DEVICE_VERIFICATION`: Tidak ada HP fisik / emulator terpasang. |
 | UI-01 | Portrait 360×800dp / HP biasa | **BLOCKED** | `NEEDS_DEVICE_VERIFICATION`: Butuh verifikasi visual di perangkat nyata. |

@@ -267,7 +267,8 @@ fun PocoStyleShutterControls(
                         listOf(Color.Transparent, Color.Black.copy(alpha = 0.34f), Color.Black.copy(alpha = 0.78f)),
                     ),
                 )
-                .padding(horizontal = 8.dp, vertical = 14.dp),
+                // No horizontal padding: the 100dp shutter touch target must fit the rail width exactly.
+                .padding(vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceEvenly,
         ) {
@@ -661,6 +662,7 @@ private fun PocoShutterButton(videoMode: Boolean, recording: Boolean, onClick: (
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
+                    role = androidx.compose.ui.semantics.Role.Button,
                     onClick = onClick,
                 )
                 .semantics {
